@@ -1,0 +1,17 @@
+services:
+  proxmox-adguard-sync:
+    build:
+      context: ./app
+    container_name: proxmox-adguard-sync
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "src/index.js", "--healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
