@@ -139,6 +139,23 @@ LOG_LEVEL=info
 TZ=Europe/Copenhagen
 ```
 
+### JSON Logging
+
+```dotenv
+LOG_JSON=false 
+```
+
+Example:
+```json
+{
+  "ts": "2026-04-07T10:00:00Z",
+  "level": "info",
+  "service": "proxmox-adguard-sync",
+  "msg": "Sync completed",
+  "meta": { "adds": 5 }
+}
+```
+
 ### DNS
 
 ```dotenv
