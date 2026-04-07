@@ -1,0 +1,16 @@
+{
+  "name": "proxmox-adguard-sync",
+  "version": "2.0.0",
+  "description": "Generic Proxmox to AdGuardHome DNS rewrite synchronizer.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [],
+  "author": "ka0s",
+  "license": "MIT"
+}
