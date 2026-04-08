@@ -146,6 +146,7 @@ LOG_JSON=false
 ```
 
 Example:
+
 ```json
 {
   "ts": "2026-04-07T10:00:00Z",
@@ -330,11 +331,25 @@ Create:
 
 ### Recommended Role
 
+#### Proxmox VE 8
+
 Create custom role with:
 
 * `Sys.Audit`
 * `VM.Audit`
 * `VM.Monitor`
+
+#### Proxmox VE 9+
+
+Create custom role with:
+
+* `Sys.Audit`
+* `VM.Audit` *(deprecated — will be removed in a future release)*
+* `VM.GuestAgent.Audit`
+
+> `VM.Monitor` was removed in PVE 9 and replaced with more granular permissions.
+
+### Assign Role
 
 Assign to:
 
@@ -385,11 +400,25 @@ Uses API endpoints:
 
 ### Permission error
 
+#### PVE 8
+
 ```text
 VM.Monitor missing
 ```
 
-Fix: ensure role includes it
+Fix: ensure role includes `VM.Monitor`
+
+#### PVE 9+
+
+```text
+VM.GuestAgent.Audit missing
+```
+
+Fix: ensure role includes:
+
+* `Sys.Audit`
+* `VM.Audit`
+* `VM.GuestAgent.Audit`
 
 ### VM skipped
 
