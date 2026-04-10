@@ -14,6 +14,11 @@ async function main() {
 
   if (isHealthcheck) {
     await adguard.listRewrites();
+
+    if (config.persistentClients.enabled) {
+      await adguard.listPersistentClients();
+    }
+
     process.exit(0);
   }
 
@@ -34,6 +39,9 @@ async function main() {
     dnsSuffix: config.dnsSuffix,
     vmDiscoveryOrder: config.discovery.vmOrder,
     lxcDiscoveryOrder: config.discovery.lxcOrder,
+    persistentClientsEnabled: config.persistentClients.enabled,
+    persistentClientsNameMode: config.persistentClients.nameMode,
+    persistentClientsManagedTag: config.persistentClients.managedTag,
   });
 
   while (!shuttingDown) {
@@ -47,6 +55,7 @@ async function main() {
     }
 
     if (shuttingDown) break;
+
     await sleep(config.syncIntervalSeconds * 1000);
   }
 
