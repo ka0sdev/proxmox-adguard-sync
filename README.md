@@ -1,8 +1,8 @@
 # Proxmox → AdGuard Home DNS Sync
 
-A configurable Node.js service that synchronizes Proxmox guests (LXC + VMs) into AdGuard Home DNS rewrites.
+A configurable Node.js service that synchronizes Proxmox guests (LXC + VMs) into AdGuard Home DNS rewrites, with optional support for **Persistent Clients**.
 
-Designed to be environment-agnostic: configure via `.env`, run in Docker, and let it continuously reconcile DNS records.
+Designed to be environment-agnostic: configure via `.env`, run in Docker, and let it continuously reconcile DNS records and client identities.
 
 ---
 
@@ -17,6 +17,7 @@ Designed to be environment-agnostic: configure via `.env`, run in Docker, and le
 * [How Discovery Works](#how-discovery-works)
 * [Naming & Overrides](#naming--overrides)
 * [Reconciliation Model](#reconciliation-model)
+* [Persistent Clients Sync (Optional)](#persistent-clients-sync-optional)
 * [State Management](#state-management)
 * [Running the Service](#running-the-service)
 * [Testing DNS](#testing-dns)
@@ -38,6 +39,7 @@ The service:
 * Reads Proxmox inventory via API
 * Discovers each guest's IP and desired DNS name
 * Syncs entries into AdGuard Home DNS rewrites
+* *(Optional)* Syncs guests into AdGuard **Persistent Clients**
 * Repeats continuously on a configurable interval
 
 Example result:
@@ -60,6 +62,7 @@ devbox-vm.internal   -> 172.20.20.10
 * Safe reconciliation (add/update/delete only managed records)
 * Dockerized deployment
 * Continuous sync loop with healthcheck
+* **Optional Persistent Clients sync**
 
 ---
 
@@ -72,7 +75,7 @@ Sync Service (Node.js)
     ↓
 AdGuard Home API
     ↓
-DNS Rewrites
+DNS Rewrites + Persistent Clients (optional)
 ```
 
 ---
@@ -161,6 +164,14 @@ Example:
 
 ```dotenv
 DNS_SUFFIX=internal
+```
+
+### Persistent Clients (NEW)
+
+```dotenv
+SYNC_PERSISTENT_CLIENTS=false
+PERSISTENT_CLIENTS_NAME_MODE=guest
+PERSISTENT_CLIENTS_TAG=proxmox-adguard-sync
 ```
 
 ### Filters
@@ -266,7 +277,10 @@ Each cycle:
 1. Fetch guests from Proxmox
 2. Apply filters
 3. Resolve IP + name
-4. Compare with AdGuard rewrites
+4. Compare with:
+
+   * DNS rewrites
+   * *(Optional)* Persistent Clients
 5. Apply changes
 
 | Action | Behavior            |
@@ -274,6 +288,34 @@ Each cycle:
 | Add    | Missing entry       |
 | Update | IP changed          |
 | Delete | Stale managed entry |
+
+---
+
+## Persistent Clients Sync (Optional)
+
+When enabled, the service will also manage **AdGuard Persistent Clients**.
+
+### Behavior
+
+* Adds each guest as a client using its IP
+* Updates client name/IP when changed
+* Removes stale clients when guests are removed
+* Skips existing unmanaged clients (safe by default)
+
+### Naming Modes
+
+| Mode       | Result            |
+| ---------- | ----------------- |
+| `guest`    | `devbox-vm`       |
+| `hostname` | `devbox`          |
+| `fqdn`     | `devbox.internal` |
+
+### Notes
+
+* Uses IP as identifier
+* Tracks ownership via state file
+* Does not override manually created clients
+* Adds optional tag (`proxmox-adguard-sync` by default)
 
 ---
 
@@ -288,6 +330,7 @@ data/state.json
 Used to:
 
 * Track managed entries
+* Track managed persistent clients
 * Avoid deleting manual DNS entries
 * Ensure safe reconciliation
 
@@ -349,19 +392,6 @@ Create custom role with:
 
 > `VM.Monitor` was removed in PVE 9 and replaced with more granular permissions.
 
-### Assign Role
-
-Assign to:
-
-* User
-* API Token
-
-Path:
-
-```text
-/
-```
-
 ---
 
 ## Guest Agent Guidance (VMs)
@@ -388,6 +418,10 @@ Uses API endpoints:
 * `/control/rewrite/list`
 * `/control/rewrite/add`
 * `/control/rewrite/delete`
+* `/control/clients` *(Persistent Clients)*
+* `/control/clients/add`
+* `/control/clients/update`
+* `/control/clients/delete`
 
 ---
 
