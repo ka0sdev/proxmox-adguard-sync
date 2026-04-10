@@ -2,10 +2,30 @@ import { parseBoolean, requireEnv } from "./utils.js";
 
 function parseCsv(value, fallback = []) {
   if (!value || !String(value).trim()) return fallback;
+
   return String(value)
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
+}
+
+function parseEnum(value, allowed, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+
+  return allowed.includes(normalized) ? normalized : fallback;
+}
+
+function parseOptionalString(value, fallback = null) {
+  if (value === undefined || value === null) return fallback;
+  if (value === "") return null;
+
+  const normalized = String(value).trim();
+
+  return normalized || fallback;
 }
 
 export function getConfig() {
@@ -25,10 +45,33 @@ export function getConfig() {
     },
 
     discovery: {
-      vmOrder: parseCsv(process.env.DISCOVERY_VM_ORDER, ["guest-agent", "description", "cloudinit"]),
-      lxcOrder: parseCsv(process.env.DISCOVERY_LXC_ORDER, ["config", "description"]),
+      vmOrder: parseCsv(process.env.DISCOVERY_VM_ORDER, [
+        "guest-agent",
+        "description",
+        "cloudinit",
+      ]),
+      lxcOrder: parseCsv(process.env.DISCOVERY_LXC_ORDER, [
+        "config",
+        "description",
+      ]),
       descriptionIpKeys: parseCsv(process.env.DESCRIPTION_IP_KEYS, ["dns_ip", "ip"]),
-      descriptionNameKeys: parseCsv(process.env.DESCRIPTION_NAME_KEYS, ["dns_name", "name"]),
+      descriptionNameKeys: parseCsv(process.env.DESCRIPTION_NAME_KEYS, [
+        "dns_name",
+        "name",
+      ]),
+    },
+
+    persistentClients: {
+      enabled: parseBoolean(process.env.SYNC_PERSISTENT_CLIENTS, false),
+      nameMode: parseEnum(
+        process.env.PERSISTENT_CLIENTS_NAME_MODE,
+        ["guest", "hostname", "fqdn"],
+        "guest"
+      ),
+      managedTag: parseOptionalString(
+        process.env.PERSISTENT_CLIENTS_TAG,
+        "proxmox-adguard-sync"
+      ),
     },
   };
 }
