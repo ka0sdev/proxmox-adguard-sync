@@ -5,17 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"time"
 
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/discovery"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/logging"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/proxmox"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/selection"
 )
 
 const (
-	applicationName       = "proxmox-adguard-sync"
-	startupRequestTimeout = 15 * time.Second
+	applicationName = "proxmox-adguard-sync"
 )
 
 func main() {
@@ -65,10 +64,7 @@ func run() error {
 		return fmt.Errorf("initialize Proxmox client: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(),
-		startupRequestTimeout,
-	)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	version, err := proxmoxClient.Version(ctx)
@@ -96,6 +92,13 @@ func run() error {
 		guests,
 		selectedGuests,
 		excludedGuests,
+	)
+
+	discoverLXCAddresses(
+		ctx,
+		logger,
+		proxmoxClient,
+		selectedGuests,
 	)
 
 	return nil
@@ -137,5 +140,85 @@ func logGuestSelection(
 		slog.Int("discovered", len(allGuests)),
 		slog.Int("selected", len(selectedGuests)),
 		slog.Int("excluded", len(excludedGuests)),
+	)
+}
+
+func discoverLXCAddresses(
+	ctx context.Context,
+	logger *slog.Logger,
+	client *proxmox.Client,
+	guests []proxmox.Guest,
+) {
+	var (
+		lxcGuests  int
+		discovered int
+		skipped    int
+		failed     int
+	)
+
+	for _, guest := range guests {
+		if guest.Type != proxmox.GuestTypeLXC {
+			continue
+		}
+
+		lxcGuests++
+
+		config, err := client.GetLXCConfig(
+			ctx,
+			guest.Node,
+			guest.VMID,
+		)
+		if err != nil {
+			failed++
+
+			logger.Warn(
+				"failed to retrieve LXC configuration",
+				slog.Int("vmid", guest.VMID),
+				slog.String("name", guest.Name),
+				slog.String("node", guest.Node),
+				slog.String("error", err.Error()),
+			)
+
+			continue
+		}
+
+		result, found := discovery.DiscoverLXCConfigIPv4(config)
+		if !found {
+			skipped++
+
+			logger.Warn(
+				"LXC has no static IPv4 in configuration",
+				slog.Int("vmid", guest.VMID),
+				slog.String("name", guest.Name),
+				slog.String("node", guest.Node),
+			)
+
+			continue
+		}
+
+		discovered++
+
+		logger.Info(
+			"discovered LXC IPv4",
+			slog.Int("vmid", guest.VMID),
+			slog.String("name", guest.Name),
+			slog.String("node", guest.Node),
+			slog.String(
+				"interface",
+				result.InterfaceName,
+			),
+			slog.String(
+				"address",
+				result.Address.String(),
+			),
+		)
+	}
+
+	logger.Info(
+		"completed LXC IPv4 discovery",
+		slog.Int("lxc_guests", lxcGuests),
+		slog.Int("discovered", discovered),
+		slog.Int("not_discovered", skipped),
+		slog.Int("failed", failed),
 	)
 }

@@ -95,6 +95,41 @@ func (c *Client) ListGuests(ctx context.Context) ([]Guest, error) {
 	return guests, nil
 }
 
+func (c *Client) GetLXCConfig(
+	ctx context.Context,
+	node string,
+	vmid int,
+) (LXCConfig, error) {
+	node = strings.TrimSpace(node)
+
+	if node == "" {
+		return nil, errors.New("LXC node must not be empty")
+	}
+
+	if vmid <= 0 {
+		return nil, errors.New("LXC VMID must be greater than zero")
+	}
+
+	path := fmt.Sprintf(
+		"/nodes/%s/lxc/%d/config",
+		url.PathEscape(node),
+		vmid,
+	)
+
+	var config LXCConfig
+
+	if err := c.get(ctx, path, &config); err != nil {
+		return nil, fmt.Errorf(
+			"get LXC configuration for node %s VMID %d: %w",
+			node,
+			vmid,
+			err,
+		)
+	}
+
+	return config, nil
+}
+
 func (c *Client) get(
 	ctx context.Context,
 	path string,

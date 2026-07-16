@@ -1,6 +1,9 @@
 package proxmox
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestGuestIsRunning(t *testing.T) {
 	testCases := []struct {
@@ -75,5 +78,29 @@ func TestGuestParsedTags(t *testing.T) {
 				expected[index],
 			)
 		}
+	}
+}
+
+func TestLXCConfigStringValue(t *testing.T) {
+	config := LXCConfig{
+		"net0": json.RawMessage(
+			`"name=eth0,ip=172.20.0.4/16"`,
+		),
+		"memory": json.RawMessage(`2048`),
+	}
+
+	if actual := config.StringValue("net0"); actual !=
+		"name=eth0,ip=172.20.0.4/16" {
+		t.Errorf(
+			"StringValue(net0) = %q",
+			actual,
+		)
+	}
+
+	if actual := config.StringValue("memory"); actual != "" {
+		t.Errorf(
+			"StringValue(memory) = %q, expected empty string",
+			actual,
+		)
 	}
 }

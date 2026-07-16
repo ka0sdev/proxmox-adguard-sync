@@ -1,6 +1,9 @@
 package proxmox
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type Version struct {
 	Version string `json:"version"`
@@ -55,6 +58,22 @@ func (g Guest) ParsedTags() []string {
 	}
 
 	return tags
+}
+
+type LXCConfig map[string]json.RawMessage
+
+func (c LXCConfig) StringValue(key string) string {
+	raw, exists := c[key]
+	if !exists {
+		return ""
+	}
+
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+
+	return value
 }
 
 type apiResponse[T any] struct {

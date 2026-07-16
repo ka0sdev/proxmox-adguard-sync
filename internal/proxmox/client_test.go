@@ -482,3 +482,135 @@ func TestListGuestsReturnsAPIError(t *testing.T) {
 		}
 	}
 }
+
+func TestGetLXCConfig(t *testing.T) {
+	server := httptest.NewServer(
+		http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			expectedPath := "/api2/json/nodes/pm/lxc/202/config"
+
+			if request.URL.Path != expectedPath {
+				t.Errorf(
+					"request path = %q, expected %q",
+					request.URL.Path,
+					expectedPath,
+				)
+			}
+
+			writer.Header().Set(
+				"Content-Type",
+				"application/json",
+			)
+
+			_, _ = writer.Write([]byte(`{
+				"data": {
+					"hostname": "lxc-dns",
+					"net0": "name=eth0,bridge=vmbr2,ip=172.20.0.4/16,type=veth",
+					"memory": 8192
+				}
+			}`))
+		}),
+	)
+	defer server.Close()
+
+	client, err := NewClient(ClientOptions{
+		BaseURL:     server.URL + "/api2/json",
+		TokenID:     "dns-sync@pve!adguard-sync",
+		TokenSecret: "test-secret",
+		VerifyTLS:   true,
+	})
+	if err != nil {
+		t.Fatalf(
+			"NewClient() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	config, err := client.GetLXCConfig(
+		context.Background(),
+		"pm",
+		202,
+	)
+	if err != nil {
+		t.Fatalf(
+			"GetLXCConfig() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	expectedNetwork := "name=eth0,bridge=vmbr2," +
+		"ip=172.20.0.4/16,type=veth"
+
+	if actual := config.StringValue("net0"); actual !=
+		expectedNetwork {
+		t.Errorf(
+			"config net0 = %q, expected %q",
+			actual,
+			expectedNetwork,
+		)
+	}
+}
+
+func TestGetLXCConfigRejectsInvalidIdentity(t *testing.T) {
+	client, err := NewClient(ClientOptions{
+		BaseURL:     "https://proxmox.example.com/api2/json",
+		TokenID:     "dns-sync@pve!adguard-sync",
+		TokenSecret: "test-secret",
+		VerifyTLS:   true,
+	})
+	if err != nil {
+		t.Fatalf(
+			"NewClient() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	testCases := []struct {
+		name      string
+		node      string
+		vmid      int
+		errorText string
+	}{
+		{
+			name:      "empty node",
+			node:      "",
+			vmid:      202,
+			errorText: "node must not be empty",
+		},
+		{
+			name:      "invalid VMID",
+			node:      "pm",
+			vmid:      0,
+			errorText: "VMID must be greater than zero",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := client.GetLXCConfig(
+				context.Background(),
+				testCase.node,
+				testCase.vmid,
+			)
+
+			if err == nil {
+				t.Fatal(
+					"GetLXCConfig() returned nil error",
+				)
+			}
+
+			if !strings.Contains(
+				err.Error(),
+				testCase.errorText,
+			) {
+				t.Errorf(
+					"error = %q, expected %q",
+					err,
+					testCase.errorText,
+				)
+			}
+		})
+	}
+}
