@@ -43,3 +43,37 @@ func TestGuestIsRunning(t *testing.T) {
 		})
 	}
 }
+
+func TestGuestParsedTags(t *testing.T) {
+	guest := Guest{
+		Tags: "dns; infrastructure,lxc;; network ",
+	}
+
+	actual := guest.ParsedTags()
+
+	expected := []string{
+		"dns",
+		"infrastructure",
+		"lxc",
+		"network",
+	}
+
+	if len(actual) != len(expected) {
+		t.Fatalf(
+			"len(ParsedTags()) = %d, expected %d",
+			len(actual),
+			len(expected),
+		)
+	}
+
+	for index := range expected {
+		if actual[index] != expected[index] {
+			t.Errorf(
+				"ParsedTags()[%d] = %q, expected %q",
+				index,
+				actual[index],
+				expected[index],
+			)
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/logging"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/proxmox"
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/selection"
 )
 
 const (
@@ -87,53 +88,54 @@ func run() error {
 		return fmt.Errorf("retrieve Proxmox guests: %w", err)
 	}
 
-	logGuestSummary(logger, guests)
+	selector := selection.New(cfg.Filters)
+	selectedGuests, excludedGuests := selector.Filter(guests)
+
+	logGuestSelection(
+		logger,
+		guests,
+		selectedGuests,
+		excludedGuests,
+	)
 
 	return nil
 }
 
-func logGuestSummary(
+func logGuestSelection(
 	logger *slog.Logger,
-	guests []proxmox.Guest,
+	allGuests []proxmox.Guest,
+	selectedGuests []proxmox.Guest,
+	excludedGuests []selection.Result,
 ) {
-	var (
-		lxcCount     int
-		qemuCount    int
-		runningCount int
-		stoppedCount int
-	)
-
-	for _, guest := range guests {
-		switch guest.Type {
-		case proxmox.GuestTypeLXC:
-			lxcCount++
-		case proxmox.GuestTypeQEMU:
-			qemuCount++
-		}
-
-		if guest.IsRunning() {
-			runningCount++
-		} else {
-			stoppedCount++
-		}
-
+	for _, guest := range selectedGuests {
 		logger.Debug(
-			"discovered Proxmox guest",
+			"selected Proxmox guest",
 			slog.Int("vmid", guest.VMID),
 			slog.String("name", guest.Name),
 			slog.String("node", guest.Node),
 			slog.String("type", string(guest.Type)),
 			slog.String("status", guest.Status),
-			slog.String("tags", guest.Tags),
+			slog.Any("tags", guest.ParsedTags()),
+		)
+	}
+
+	for _, result := range excludedGuests {
+		logger.Debug(
+			"excluded Proxmox guest",
+			slog.Int("vmid", result.Guest.VMID),
+			slog.String("name", result.Guest.Name),
+			slog.String("node", result.Guest.Node),
+			slog.String("type", string(result.Guest.Type)),
+			slog.String("status", result.Guest.Status),
+			slog.Any("tags", result.GuestTags),
+			slog.String("reason", string(result.Reason)),
 		)
 	}
 
 	logger.Info(
-		"retrieved Proxmox guests",
-		slog.Int("total", len(guests)),
-		slog.Int("lxc", lxcCount),
-		slog.Int("qemu", qemuCount),
-		slog.Int("running", runningCount),
-		slog.Int("not_running", stoppedCount),
+		"filtered Proxmox guests",
+		slog.Int("discovered", len(allGuests)),
+		slog.Int("selected", len(selectedGuests)),
+		slog.Int("excluded", len(excludedGuests)),
 	)
 }

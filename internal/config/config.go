@@ -20,6 +20,7 @@ type Config struct {
 	Proxmox ProxmoxConfig
 	AdGuard AdGuardConfig
 	Logging LoggingConfig
+	Filters FilterConfig
 
 	SyncInterval time.Duration
 }
@@ -42,6 +43,15 @@ type LoggingConfig struct {
 	Format string
 }
 
+type FilterConfig struct {
+	IncludeTypes   []string
+	RequireRunning bool
+	IncludeTags    []string
+	ExcludeTags    []string
+	IncludeNames   []string
+	ExcludeNames   []string
+}
+
 func Load() (Config, error) {
 	proxmoxVerifyTLS, err := environmentBool(
 		"PROXMOX_VERIFY_TLS",
@@ -52,6 +62,14 @@ func Load() (Config, error) {
 	}
 
 	logFormat, err := loadLogFormat()
+	if err != nil {
+		return Config{}, err
+	}
+
+	requireRunning, err := environmentBool(
+		"FILTER_REQUIRE_RUNNING",
+		false,
+	)
 	if err != nil {
 		return Config{}, err
 	}
@@ -88,6 +106,29 @@ func Load() (Config, error) {
 				defaultLogLevel,
 			),
 			Format: logFormat,
+		},
+		Filters: FilterConfig{
+			IncludeTypes: environmentCSV(
+				"FILTER_INCLUDE_TYPES",
+				[]string{"qemu", "lxc"},
+			),
+			RequireRunning: requireRunning,
+			IncludeTags: environmentCSV(
+				"FILTER_INCLUDE_TAGS",
+				nil,
+			),
+			ExcludeTags: environmentCSV(
+				"FILTER_EXCLUDE_TAGS",
+				nil,
+			),
+			IncludeNames: environmentCSV(
+				"FILTER_INCLUDE_NAMES",
+				nil,
+			),
+			ExcludeNames: environmentCSV(
+				"FILTER_EXCLUDE_NAMES",
+				nil,
+			),
 		},
 		SyncInterval: defaultSyncInterval,
 	}
@@ -165,6 +206,17 @@ func (c Config) Validate() error {
 		)
 	}
 
+	for _, guestType := range c.Filters.IncludeTypes {
+		switch guestType {
+		case "qemu", "lxc":
+		default:
+			return fmt.Errorf(
+				"FILTER_INCLUDE_TYPES contains unsupported type %q",
+				guestType,
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -216,6 +268,25 @@ func environmentBool(name string, defaultValue bool) (bool, error) {
 	}
 
 	return parsed, nil
+}
+
+func environmentCSV(name string, defaultValue []string) []string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return append([]string(nil), defaultValue...)
+	}
+
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		normalized := strings.ToLower(strings.TrimSpace(part))
+		if normalized != "" {
+			values = append(values, normalized)
+		}
+	}
+
+	return values
 }
 
 func isSupportedLogLevel(value string) bool {
