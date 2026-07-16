@@ -26,10 +26,18 @@ func TestLoadUsesDefaultSyncInterval(t *testing.T) {
 func TestLoadReadsConfiguration(t *testing.T) {
 	setValidEnvironment(t)
 
-	t.Setenv("PROXMOX_URL", " https://proxmox.example.com:8006 ")
+	t.Setenv(
+		"PROXMOX_BASE_URL",
+		" https://proxmox.example.com:8006/api2/json/ ",
+	)
 	t.Setenv("PROXMOX_TOKEN_ID", " root@pam!sync ")
 	t.Setenv("PROXMOX_TOKEN_SECRET", " proxmox-secret ")
-	t.Setenv("ADGUARD_URL", " http://adguard.example.com ")
+	t.Setenv("PROXMOX_VERIFY_TLS", "false")
+
+	t.Setenv(
+		"ADGUARD_BASE_URL",
+		" http://adguard.example.com/ ",
+	)
 	t.Setenv("ADGUARD_USERNAME", " admin ")
 	t.Setenv("ADGUARD_PASSWORD", " adguard-secret ")
 	t.Setenv("SYNC_INTERVAL_SECONDS", "30")
@@ -39,11 +47,11 @@ func TestLoadReadsConfiguration(t *testing.T) {
 		t.Fatalf("Load() returned an unexpected error: %v", err)
 	}
 
-	if cfg.Proxmox.BaseURL != "https://proxmox.example.com:8006" {
+	if cfg.Proxmox.BaseURL != "https://proxmox.example.com:8006/api2/json" {
 		t.Errorf(
 			"Proxmox.BaseURL = %q, expected %q",
 			cfg.Proxmox.BaseURL,
-			"https://proxmox.example.com:8006",
+			"https://proxmox.example.com:8006/api2/json",
 		)
 	}
 
@@ -105,10 +113,10 @@ func TestLoadRejectsMissingRequiredEnvironmentVariables(t *testing.T) {
 	}
 
 	expectedVariables := []string{
-		"PROXMOX_URL",
+		"PROXMOX_BASE_URL",
 		"PROXMOX_TOKEN_ID",
 		"PROXMOX_TOKEN_SECRET",
-		"ADGUARD_URL",
+		"ADGUARD_BASE_URL",
 		"ADGUARD_USERNAME",
 		"ADGUARD_PASSWORD",
 	}
@@ -179,26 +187,60 @@ func TestLoadRejectsNonPositiveSyncInterval(t *testing.T) {
 	}
 }
 
+func TestLoadSupportsLegacyJSONLoggingVariable(t *testing.T) {
+	setValidEnvironment(t)
+	t.Setenv("LOG_JSON", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned an unexpected error: %v", err)
+	}
+
+	if cfg.Logging.Format != "json" {
+		t.Errorf(
+			"Logging.Format = %q, expected %q",
+			cfg.Logging.Format,
+			"json",
+		)
+	}
+}
+
 func setValidEnvironment(t *testing.T) {
 	t.Helper()
 
-	t.Setenv("PROXMOX_URL", "https://proxmox.example.com:8006")
+	t.Setenv("PROXMOX_BASE_URL", "https://proxmox.example.com:8006/api2/json")
+	t.Setenv("PROXMOX_URL", "")
 	t.Setenv("PROXMOX_TOKEN_ID", "root@pam!sync")
 	t.Setenv("PROXMOX_TOKEN_SECRET", "proxmox-secret")
-	t.Setenv("ADGUARD_URL", "http://adguard.example.com")
+	t.Setenv("PROXMOX_VERIFY_TLS", "true")
+
+	t.Setenv("ADGUARD_BASE_URL", "http://adguard.example.com")
+	t.Setenv("ADGUARD_URL", "")
 	t.Setenv("ADGUARD_USERNAME", "admin")
 	t.Setenv("ADGUARD_PASSWORD", "adguard-secret")
+
 	t.Setenv("SYNC_INTERVAL_SECONDS", "")
+	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("LOG_FORMAT", "")
+	t.Setenv("LOG_JSON", "")
 }
 
 func clearEnvironment(t *testing.T) {
 	t.Helper()
 
+	t.Setenv("PROXMOX_BASE_URL", "")
 	t.Setenv("PROXMOX_URL", "")
 	t.Setenv("PROXMOX_TOKEN_ID", "")
 	t.Setenv("PROXMOX_TOKEN_SECRET", "")
+	t.Setenv("PROXMOX_VERIFY_TLS", "")
+
+	t.Setenv("ADGUARD_BASE_URL", "")
 	t.Setenv("ADGUARD_URL", "")
 	t.Setenv("ADGUARD_USERNAME", "")
 	t.Setenv("ADGUARD_PASSWORD", "")
+
 	t.Setenv("SYNC_INTERVAL_SECONDS", "")
+	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("LOG_FORMAT", "")
+	t.Setenv("LOG_JSON", "")
 }
