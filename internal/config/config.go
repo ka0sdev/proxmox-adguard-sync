@@ -10,12 +10,16 @@ import (
 )
 
 const (
-	defaultSyncInterval = 60 * time.Second
+	defaultSyncInterval   = 60 * time.Second
+	defaultLogLevel       = "info"
+	defaultLogFormat      = "text"
+	defaultProxmoxTLSMode = true
 )
 
 type Config struct {
 	Proxmox ProxmoxConfig
 	AdGuard AdGuardConfig
+	Logging LoggingConfig
 
 	SyncInterval time.Duration
 }
@@ -24,6 +28,7 @@ type ProxmoxConfig struct {
 	BaseURL        string
 	APITokenID     string
 	APITokenSecret string
+	VerifyTLS      bool
 }
 
 type AdGuardConfig struct {
@@ -32,22 +37,64 @@ type AdGuardConfig struct {
 	Password string
 }
 
+type LoggingConfig struct {
+	Level  string
+	Format string
+}
+
 func Load() (Config, error) {
+	proxmoxVerifyTLS, err := environmentBool(
+		"PROXMOX_VERIFY_TLS",
+		defaultProxmoxTLSMode,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	logFormat, err := loadLogFormat()
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Proxmox: ProxmoxConfig{
-			BaseURL:        strings.TrimSpace(os.Getenv("PROXMOX_URL")),
-			APITokenID:     strings.TrimSpace(os.Getenv("PROXMOX_TOKEN_ID")),
-			APITokenSecret: strings.TrimSpace(os.Getenv("PROXMOX_TOKEN_SECRET")),
+			BaseURL: environmentFirst(
+				"PROXMOX_BASE_URL",
+				"PROXMOX_URL",
+			),
+			APITokenID: strings.TrimSpace(
+				os.Getenv("PROXMOX_TOKEN_ID"),
+			),
+			APITokenSecret: strings.TrimSpace(
+				os.Getenv("PROXMOX_TOKEN_SECRET"),
+			),
+			VerifyTLS: proxmoxVerifyTLS,
 		},
 		AdGuard: AdGuardConfig{
-			BaseURL:  strings.TrimSpace(os.Getenv("ADGUARD_URL")),
-			Username: strings.TrimSpace(os.Getenv("ADGUARD_USERNAME")),
-			Password: strings.TrimSpace(os.Getenv("ADGUARD_PASSWORD")),
+			BaseURL: environmentFirst(
+				"ADGUARD_BASE_URL",
+				"ADGUARD_URL",
+			),
+			Username: strings.TrimSpace(
+				os.Getenv("ADGUARD_USERNAME"),
+			),
+			Password: strings.TrimSpace(
+				os.Getenv("ADGUARD_PASSWORD"),
+			),
+		},
+		Logging: LoggingConfig{
+			Level: environmentOrDefault(
+				"LOG_LEVEL",
+				defaultLogLevel,
+			),
+			Format: logFormat,
 		},
 		SyncInterval: defaultSyncInterval,
 	}
 
-	if value := strings.TrimSpace(os.Getenv("SYNC_INTERVAL_SECONDS")); value != "" {
+	if value := strings.TrimSpace(
+		os.Getenv("SYNC_INTERVAL_SECONDS"),
+	); value != "" {
 		seconds, err := strconv.Atoi(value)
 		if err != nil {
 			return Config{}, fmt.Errorf(
@@ -76,7 +123,7 @@ func (c Config) Validate() error {
 	var missing []string
 
 	if c.Proxmox.BaseURL == "" {
-		missing = append(missing, "PROXMOX_URL")
+		missing = append(missing, "PROXMOX_BASE_URL")
 	}
 
 	if c.Proxmox.APITokenID == "" {
@@ -88,7 +135,7 @@ func (c Config) Validate() error {
 	}
 
 	if c.AdGuard.BaseURL == "" {
-		missing = append(missing, "ADGUARD_URL")
+		missing = append(missing, "ADGUARD_BASE_URL")
 	}
 
 	if c.AdGuard.Username == "" {
@@ -106,5 +153,85 @@ func (c Config) Validate() error {
 		)
 	}
 
+	if !isSupportedLogLevel(c.Logging.Level) {
+		return errors.New(
+			"LOG_LEVEL must be one of: debug, info, warn, error",
+		)
+	}
+
+	if !isSupportedLogFormat(c.Logging.Format) {
+		return errors.New(
+			"LOG_FORMAT must be one of: text, json",
+		)
+	}
+
 	return nil
+}
+
+func loadLogFormat() (string, error) {
+	if value := strings.TrimSpace(os.Getenv("LOG_FORMAT")); value != "" {
+		return strings.ToLower(value), nil
+	}
+
+	logJSON, err := environmentBool("LOG_JSON", false)
+	if err != nil {
+		return "", err
+	}
+
+	if logJSON {
+		return "json", nil
+	}
+
+	return defaultLogFormat, nil
+}
+
+func environmentFirst(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return strings.TrimRight(value, "/")
+		}
+	}
+
+	return ""
+}
+
+func environmentOrDefault(name, defaultValue string) string {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if value == "" {
+		return defaultValue
+	}
+
+	return value
+}
+
+func environmentBool(name string, defaultValue bool) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("parse %s: %w", name, err)
+	}
+
+	return parsed, nil
+}
+
+func isSupportedLogLevel(value string) bool {
+	switch value {
+	case "debug", "info", "warn", "warning", "error":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedLogFormat(value string) bool {
+	switch value {
+	case "text", "json":
+		return true
+	default:
+		return false
+	}
 }
