@@ -55,3 +55,9 @@ docker-compose.override.yml
 # Git
 # =========================
 *.lock
+
+# Go build output
+/bin/
+*.exe
+*.test
+*.out
