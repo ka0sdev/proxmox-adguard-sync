@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
 )
 
 const applicationName = "proxmox-adguard-sync"
@@ -15,7 +17,16 @@ func main() {
 }
 
 func run() error {
-	fmt.Printf("%s Go rewrite initialized successfully\n", applicationName)
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load configuration: %w", err)
+	}
+
+	fmt.Printf(
+		"%s initialized with sync interval %s\n",
+		applicationName,
+		cfg.SyncInterval,
+	)
 
 	return nil
 }
