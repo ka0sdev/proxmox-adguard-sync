@@ -82,5 +82,58 @@ func run() error {
 		slog.String("repository_id", version.RepoID),
 	)
 
+	guests, err := proxmoxClient.ListGuests(ctx)
+	if err != nil {
+		return fmt.Errorf("retrieve Proxmox guests: %w", err)
+	}
+
+	logGuestSummary(logger, guests)
+
 	return nil
+}
+
+func logGuestSummary(
+	logger *slog.Logger,
+	guests []proxmox.Guest,
+) {
+	var (
+		lxcCount     int
+		qemuCount    int
+		runningCount int
+		stoppedCount int
+	)
+
+	for _, guest := range guests {
+		switch guest.Type {
+		case proxmox.GuestTypeLXC:
+			lxcCount++
+		case proxmox.GuestTypeQEMU:
+			qemuCount++
+		}
+
+		if guest.IsRunning() {
+			runningCount++
+		} else {
+			stoppedCount++
+		}
+
+		logger.Debug(
+			"discovered Proxmox guest",
+			slog.Int("vmid", guest.VMID),
+			slog.String("name", guest.Name),
+			slog.String("node", guest.Node),
+			slog.String("type", string(guest.Type)),
+			slog.String("status", guest.Status),
+			slog.String("tags", guest.Tags),
+		)
+	}
+
+	logger.Info(
+		"retrieved Proxmox guests",
+		slog.Int("total", len(guests)),
+		slog.Int("lxc", lxcCount),
+		slog.Int("qemu", qemuCount),
+		slog.Int("running", runningCount),
+		slog.Int("not_running", stoppedCount),
+	)
 }
