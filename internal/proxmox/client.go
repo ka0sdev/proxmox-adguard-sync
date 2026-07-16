@@ -76,6 +76,25 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 	return version, nil
 }
 
+func (c *Client) ListGuests(ctx context.Context) ([]Guest, error) {
+	var resources []Guest
+
+	if err := c.get(ctx, "/cluster/resources", &resources); err != nil {
+		return nil, fmt.Errorf("list cluster resources: %w", err)
+	}
+
+	guests := make([]Guest, 0, len(resources))
+
+	for _, resource := range resources {
+		switch resource.Type {
+		case GuestTypeQEMU, GuestTypeLXC:
+			guests = append(guests, resource)
+		}
+	}
+
+	return guests, nil
+}
+
 func (c *Client) get(
 	ctx context.Context,
 	path string,
