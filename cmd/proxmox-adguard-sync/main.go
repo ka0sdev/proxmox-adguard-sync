@@ -94,10 +94,11 @@ func run() error {
 		excludedGuests,
 	)
 
-	discoverLXCAddresses(
+	discoverGuestMetadata(
 		ctx,
 		logger,
 		proxmoxClient,
+		cfg.Discovery,
 		selectedGuests,
 	)
 
@@ -143,82 +144,167 @@ func logGuestSelection(
 	)
 }
 
-func discoverLXCAddresses(
+func discoverGuestMetadata(
 	ctx context.Context,
 	logger *slog.Logger,
 	client *proxmox.Client,
+	discoveryConfig config.DiscoveryConfig,
 	guests []proxmox.Guest,
 ) {
 	var (
-		lxcGuests  int
-		discovered int
-		skipped    int
-		failed     int
+		configurationsRetrieved int
+		configurationsFailed    int
+		lxcStaticAddresses      int
+		descriptionAddresses    int
+		descriptionNames        int
 	)
 
 	for _, guest := range guests {
-		if guest.Type != proxmox.GuestTypeLXC {
+		var (
+			guestConfig proxmox.GuestConfig
+			err         error
+		)
+
+		switch guest.Type {
+		case proxmox.GuestTypeLXC:
+			guestConfig, err = client.GetLXCConfig(
+				ctx,
+				guest.Node,
+				guest.VMID,
+			)
+		case proxmox.GuestTypeQEMU:
+			guestConfig, err = client.GetQEMUConfig(
+				ctx,
+				guest.Node,
+				guest.VMID,
+			)
+		default:
 			continue
 		}
 
-		lxcGuests++
-
-		config, err := client.GetLXCConfig(
-			ctx,
-			guest.Node,
-			guest.VMID,
-		)
 		if err != nil {
-			failed++
+			configurationsFailed++
 
 			logger.Warn(
-				"failed to retrieve LXC configuration",
+				"failed to retrieve guest configuration",
 				slog.Int("vmid", guest.VMID),
 				slog.String("name", guest.Name),
 				slog.String("node", guest.Node),
+				slog.String("type", string(guest.Type)),
 				slog.String("error", err.Error()),
 			)
 
 			continue
 		}
 
-		result, found := discovery.DiscoverLXCConfigIPv4(config)
-		if !found {
-			skipped++
+		configurationsRetrieved++
 
-			logger.Warn(
-				"LXC has no static IPv4 in configuration",
+		if guest.Type == proxmox.GuestTypeLXC {
+			lxcResult, found :=
+				discovery.DiscoverLXCConfigIPv4(guestConfig)
+
+			if found {
+				lxcStaticAddresses++
+
+				logger.Info(
+					"discovered LXC configuration IPv4",
+					slog.Int("vmid", guest.VMID),
+					slog.String("name", guest.Name),
+					slog.String("node", guest.Node),
+					slog.String(
+						"interface",
+						lxcResult.InterfaceName,
+					),
+					slog.String(
+						"address",
+						lxcResult.Address.String(),
+					),
+				)
+			}
+		}
+
+		descriptionResult := discovery.ParseDescription(
+			guestConfig.StringValue("description"),
+			discoveryConfig.DescriptionIPKeys,
+			discoveryConfig.DescriptionNameKeys,
+		)
+
+		if descriptionResult.HasAddress {
+			descriptionAddresses++
+
+			logger.Info(
+				"discovered description IPv4",
 				slog.Int("vmid", guest.VMID),
 				slog.String("name", guest.Name),
 				slog.String("node", guest.Node),
+				slog.String("type", string(guest.Type)),
+				slog.String(
+					"address",
+					descriptionResult.Address.String(),
+				),
+				slog.String(
+					"metadata_key",
+					descriptionResult.AddressKey,
+				),
 			)
-
-			continue
 		}
 
-		discovered++
+		if descriptionResult.HasName {
+			descriptionNames++
 
-		logger.Info(
-			"discovered LXC IPv4",
-			slog.Int("vmid", guest.VMID),
-			slog.String("name", guest.Name),
-			slog.String("node", guest.Node),
-			slog.String(
-				"interface",
-				result.InterfaceName,
-			),
-			slog.String(
-				"address",
-				result.Address.String(),
-			),
-		)
+			logger.Info(
+				"discovered description name",
+				slog.Int("vmid", guest.VMID),
+				slog.String("name", guest.Name),
+				slog.String("node", guest.Node),
+				slog.String("type", string(guest.Type)),
+				slog.String(
+					"override_name",
+					descriptionResult.Name,
+				),
+				slog.String(
+					"metadata_key",
+					descriptionResult.NameKey,
+				),
+			)
+		}
+
+		if guest.Type == proxmox.GuestTypeLXC &&
+			!descriptionResult.HasAddress {
+			if _, found := discovery.DiscoverLXCConfigIPv4(
+				guestConfig,
+			); !found {
+				logger.Warn(
+					"no LXC IPv4 discovery result",
+					slog.Int("vmid", guest.VMID),
+					slog.String("name", guest.Name),
+					slog.String("node", guest.Node),
+				)
+			}
+		}
 	}
 
 	logger.Info(
-		"completed LXC IPv4 discovery",
-		slog.Int("lxc_guests", lxcGuests),
-		slog.Int("discovered", discovered),
-		slog.Int("not_discovered", skipped),
-		slog.Int("failed", failed),
+		"completed guest metadata discovery",
+		slog.Int(
+			"configurations_retrieved",
+			configurationsRetrieved,
+		),
+		slog.Int(
+			"configurations_failed",
+			configurationsFailed,
+		),
+		slog.Int(
+			"lxc_static_addresses",
+			lxcStaticAddresses,
+		),
+		slog.Int(
+			"description_addresses",
+			descriptionAddresses,
+		),
+		slog.Int(
+			"description_names",
+			descriptionNames,
+		),
 	)
 }

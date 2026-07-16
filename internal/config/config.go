@@ -17,10 +17,11 @@ const (
 )
 
 type Config struct {
-	Proxmox ProxmoxConfig
-	AdGuard AdGuardConfig
-	Logging LoggingConfig
-	Filters FilterConfig
+	Proxmox   ProxmoxConfig
+	AdGuard   AdGuardConfig
+	Logging   LoggingConfig
+	Filters   FilterConfig
+	Discovery DiscoveryConfig
 
 	SyncInterval time.Duration
 }
@@ -50,6 +51,11 @@ type FilterConfig struct {
 	ExcludeTags    []string
 	IncludeNames   []string
 	ExcludeNames   []string
+}
+
+type DiscoveryConfig struct {
+	DescriptionIPKeys   []string
+	DescriptionNameKeys []string
 }
 
 func Load() (Config, error) {
@@ -128,6 +134,16 @@ func Load() (Config, error) {
 			ExcludeNames: environmentCSV(
 				"FILTER_EXCLUDE_NAMES",
 				nil,
+			),
+		},
+		Discovery: DiscoveryConfig{
+			DescriptionIPKeys: environmentCSV(
+				"DESCRIPTION_IP_KEYS",
+				[]string{"dns_ip", "ip"},
+			),
+			DescriptionNameKeys: environmentCSV(
+				"DESCRIPTION_NAME_KEYS",
+				[]string{"dns_name", "name"},
 			),
 		},
 		SyncInterval: defaultSyncInterval,

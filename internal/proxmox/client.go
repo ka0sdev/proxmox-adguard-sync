@@ -130,6 +130,41 @@ func (c *Client) GetLXCConfig(
 	return config, nil
 }
 
+func (c *Client) GetQEMUConfig(
+	ctx context.Context,
+	node string,
+	vmid int,
+) (QEMUConfig, error) {
+	node = strings.TrimSpace(node)
+
+	if node == "" {
+		return nil, errors.New("QEMU node must not be empty")
+	}
+
+	if vmid <= 0 {
+		return nil, errors.New("QEMU VMID must be greater than zero")
+	}
+
+	path := fmt.Sprintf(
+		"/nodes/%s/qemu/%d/config",
+		url.PathEscape(node),
+		vmid,
+	)
+
+	var config QEMUConfig
+
+	if err := c.get(ctx, path, &config); err != nil {
+		return nil, fmt.Errorf(
+			"get QEMU configuration for node %s VMID %d: %w",
+			node,
+			vmid,
+			err,
+		)
+	}
+
+	return config, nil
+}
+
 func (c *Client) get(
 	ctx context.Context,
 	path string,

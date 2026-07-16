@@ -60,9 +60,9 @@ func (g Guest) ParsedTags() []string {
 	return tags
 }
 
-type LXCConfig map[string]json.RawMessage
+type GuestConfig map[string]json.RawMessage
 
-func (c LXCConfig) StringValue(key string) string {
+func (c GuestConfig) StringValue(key string) string {
 	raw, exists := c[key]
 	if !exists {
 		return ""
@@ -75,6 +75,9 @@ func (c LXCConfig) StringValue(key string) string {
 
 	return value
 }
+
+type LXCConfig = GuestConfig
+type QEMUConfig = GuestConfig
 
 type apiResponse[T any] struct {
 	Data T `json:"data"`
