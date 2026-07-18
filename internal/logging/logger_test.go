@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestNewCreatesTextLogger(t *testing.T) {
+func TestNewCreatesPrettyTextLogger(t *testing.T) {
 	var output bytes.Buffer
 
 	logger, err := New(&output, "info", "text")
@@ -16,29 +16,89 @@ func TestNewCreatesTextLogger(t *testing.T) {
 	}
 
 	logger.Info(
-		"application initialized",
+		"Application initialized",
 		slog.String("component", "test"),
+		slog.Int("count", 3),
 	)
 
 	logOutput := output.String()
 
-	if !strings.Contains(logOutput, "level=INFO") {
+	expectedValues := []string{
+		"INFO ",
+		"Application initialized",
+		"component=test",
+		"count=3",
+	}
+
+	for _, expectedValue := range expectedValues {
+		if !strings.Contains(logOutput, expectedValue) {
+			t.Errorf(
+				"log output %q does not contain %q",
+				logOutput,
+				expectedValue,
+			)
+		}
+	}
+}
+
+func TestPrettyLoggerFormatsStringSlices(
+	t *testing.T,
+) {
+	var output bytes.Buffer
+
+	logger, err := New(&output, "debug", "text")
+	if err != nil {
+		t.Fatalf("New() returned an unexpected error: %v", err)
+	}
+
+	logger.Debug(
+		"Selected guest",
+		slog.Any(
+			"tags",
+			[]string{
+				"development",
+				"testing",
+				"uat",
+			},
+		),
+	)
+
+	logOutput := output.String()
+
+	if !strings.Contains(
+		logOutput,
+		"tags=development,testing,uat",
+	) {
 		t.Errorf(
-			"log output %q does not contain INFO level",
+			"log output %q does not contain formatted tags",
 			logOutput,
 		)
 	}
+}
 
-	if !strings.Contains(logOutput, `msg="application initialized"`) {
-		t.Errorf(
-			"log output %q does not contain expected message",
-			logOutput,
-		)
+func TestPrettyLoggerQuotesValuesContainingSpaces(
+	t *testing.T,
+) {
+	var output bytes.Buffer
+
+	logger, err := New(&output, "info", "text")
+	if err != nil {
+		t.Fatalf("New() returned an unexpected error: %v", err)
 	}
 
-	if !strings.Contains(logOutput, "component=test") {
+	logger.Info(
+		"Test message",
+		slog.String("value", "contains spaces"),
+	)
+
+	logOutput := output.String()
+
+	if !strings.Contains(
+		logOutput,
+		`value="contains spaces"`,
+	) {
 		t.Errorf(
-			"log output %q does not contain expected attribute",
+			"log output %q does not quote value",
 			logOutput,
 		)
 	}
@@ -53,7 +113,7 @@ func TestNewCreatesJSONLogger(t *testing.T) {
 	}
 
 	logger.Info(
-		"application initialized",
+		"Application initialized",
 		slog.String("component", "test"),
 	)
 
@@ -61,7 +121,7 @@ func TestNewCreatesJSONLogger(t *testing.T) {
 
 	expectedValues := []string{
 		`"level":"INFO"`,
-		`"msg":"application initialized"`,
+		`"msg":"Application initialized"`,
 		`"component":"test"`,
 	}
 
@@ -76,7 +136,9 @@ func TestNewCreatesJSONLogger(t *testing.T) {
 	}
 }
 
-func TestLoggerFiltersMessagesBelowConfiguredLevel(t *testing.T) {
+func TestLoggerFiltersMessagesBelowConfiguredLevel(
+	t *testing.T,
+) {
 	var output bytes.Buffer
 
 	logger, err := New(&output, "warn", "text")
@@ -84,27 +146,27 @@ func TestLoggerFiltersMessagesBelowConfiguredLevel(t *testing.T) {
 		t.Fatalf("New() returned an unexpected error: %v", err)
 	}
 
-	logger.Debug("debug message")
-	logger.Info("info message")
-	logger.Warn("warning message")
+	logger.Debug("Debug message")
+	logger.Info("Info message")
+	logger.Warn("Warning message")
 
 	logOutput := output.String()
 
-	if strings.Contains(logOutput, "debug message") {
+	if strings.Contains(logOutput, "Debug message") {
 		t.Errorf(
 			"log output %q unexpectedly contains debug message",
 			logOutput,
 		)
 	}
 
-	if strings.Contains(logOutput, "info message") {
+	if strings.Contains(logOutput, "Info message") {
 		t.Errorf(
 			"log output %q unexpectedly contains info message",
 			logOutput,
 		)
 	}
 
-	if !strings.Contains(logOutput, "warning message") {
+	if !strings.Contains(logOutput, "Warning message") {
 		t.Errorf(
 			"log output %q does not contain warning message",
 			logOutput,
@@ -117,7 +179,9 @@ func TestNewRejectsUnsupportedLevel(t *testing.T) {
 
 	_, err := New(&output, "verbose", "text")
 	if err == nil {
-		t.Fatal("New() returned nil error, expected unsupported-level error")
+		t.Fatal(
+			"New() returned nil error, expected unsupported-level error",
+		)
 	}
 
 	if !strings.Contains(err.Error(), "unsupported log level") {
@@ -133,7 +197,9 @@ func TestNewRejectsUnsupportedFormat(t *testing.T) {
 
 	_, err := New(&output, "info", "xml")
 	if err == nil {
-		t.Fatal("New() returned nil error, expected unsupported-format error")
+		t.Fatal(
+			"New() returned nil error, expected unsupported-format error",
+		)
 	}
 
 	if !strings.Contains(err.Error(), "unsupported log format") {
