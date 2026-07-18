@@ -42,7 +42,7 @@ func run() error {
 	slog.SetDefault(logger)
 
 	logger.Info(
-		"application initializing",
+		"Starting application",
 		slog.String("application", applicationName),
 		slog.String("sync_interval", cfg.SyncInterval.String()),
 		slog.String("log_level", cfg.Logging.Level),
@@ -73,7 +73,7 @@ func run() error {
 	}
 
 	logger.Info(
-		"connected to Proxmox",
+		"Connected to Proxmox",
 		slog.String("version", version.Version),
 		slog.String("release", version.Release),
 		slog.String("repository_id", version.RepoID),
@@ -113,10 +113,9 @@ func logGuestSelection(
 ) {
 	for _, guest := range selectedGuests {
 		logger.Debug(
-			"selected Proxmox guest",
+			"Selected guest",
 			slog.Int("vmid", guest.VMID),
 			slog.String("name", guest.Name),
-			slog.String("node", guest.Node),
 			slog.String("type", string(guest.Type)),
 			slog.String("status", guest.Status),
 			slog.Any("tags", guest.ParsedTags()),
@@ -125,19 +124,17 @@ func logGuestSelection(
 
 	for _, result := range excludedGuests {
 		logger.Debug(
-			"excluded Proxmox guest",
+			"Excluded guest",
 			slog.Int("vmid", result.Guest.VMID),
 			slog.String("name", result.Guest.Name),
-			slog.String("node", result.Guest.Node),
 			slog.String("type", string(result.Guest.Type)),
-			slog.String("status", result.Guest.Status),
-			slog.Any("tags", result.GuestTags),
 			slog.String("reason", string(result.Reason)),
+			slog.Any("tags", result.GuestTags),
 		)
 	}
 
 	logger.Info(
-		"filtered Proxmox guests",
+		"Guest filtering complete",
 		slog.Int("discovered", len(allGuests)),
 		slog.Int("selected", len(selectedGuests)),
 		slog.Int("excluded", len(excludedGuests)),
@@ -207,18 +204,11 @@ func discoverGuestMetadata(
 				lxcStaticAddresses++
 
 				logger.Info(
-					"discovered LXC configuration IPv4",
+					"Discovered LXC IPv4",
 					slog.Int("vmid", guest.VMID),
 					slog.String("name", guest.Name),
-					slog.String("node", guest.Node),
-					slog.String(
-						"interface",
-						lxcResult.InterfaceName,
-					),
-					slog.String(
-						"address",
-						lxcResult.Address.String(),
-					),
+					slog.String("address", lxcResult.Address.String()),
+					slog.String("interface", lxcResult.InterfaceName),
 				)
 			}
 		}
@@ -233,7 +223,7 @@ func discoverGuestMetadata(
 			descriptionAddresses++
 
 			logger.Info(
-				"discovered description IPv4",
+				"Discovered description IPv4",
 				slog.Int("vmid", guest.VMID),
 				slog.String("name", guest.Name),
 				slog.String("node", guest.Node),
@@ -253,7 +243,7 @@ func discoverGuestMetadata(
 			descriptionNames++
 
 			logger.Info(
-				"discovered description name",
+				"Discovered description name",
 				slog.Int("vmid", guest.VMID),
 				slog.String("name", guest.Name),
 				slog.String("node", guest.Node),
@@ -285,7 +275,7 @@ func discoverGuestMetadata(
 	}
 
 	logger.Info(
-		"completed guest metadata discovery",
+		"Guest metadata discovery complete",
 		slog.Int(
 			"configurations_retrieved",
 			configurationsRetrieved,
