@@ -1,5 +1,3 @@
-# Proxmox → AdGuard Home DNS Sync
-
 > [!NOTE]
 > This repository now uses the Go implementation by default.  
 > The original JavaScript version is preserved on the [`legacy-javascript`](https://github.com/ka0sdev/proxmox-adguard-sync/tree/legacy-javascript) branch.
