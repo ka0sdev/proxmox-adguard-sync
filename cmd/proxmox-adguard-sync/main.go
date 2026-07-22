@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/adguard"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/discovery"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/logging"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/proxmox"
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/reconcile"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/selection"
 )
 
@@ -143,8 +145,45 @@ func run() error {
 		selectedGuests,
 	)
 
-	// This will be consumed by the AdGuard planning layer later.
-	_ = resolvedGuests
+	desiredRewrites, err := reconcile.BuildDesiredRewrites(
+		resolvedGuests,
+		cfg.DNS.Suffix,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"build desired DNS rewrites: %w",
+			err,
+		)
+	}
+
+	adguardClient, err := adguard.NewClient(
+		adguard.ClientOptions{
+			BaseURL:  cfg.AdGuard.BaseURL,
+			Username: cfg.AdGuard.Username,
+			Password: cfg.AdGuard.Password,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"initialize AdGuard client: %w",
+			err,
+		)
+	}
+
+	currentRewrites, err := adguardClient.ListRewrites(ctx)
+	if err != nil {
+		return fmt.Errorf(
+			"retrieve AdGuard rewrites: %w",
+			err,
+		)
+	}
+
+	plan := reconcile.BuildPlan(
+		desiredRewrites,
+		currentRewrites,
+	)
+
+	logReconciliationPlan(logger, plan)
 
 	return nil
 }
@@ -405,5 +444,67 @@ func logResolvedGuest(
 	logger.Info(
 		"Resolved guest",
 		attributes...,
+	)
+}
+
+func logReconciliationPlan(
+	logger *slog.Logger,
+	plan reconcile.Plan,
+) {
+	for _, rewrite := range plan.Add {
+		logger.Info(
+			"DNS rewrite would be added",
+			slog.String("domain", rewrite.Domain),
+			slog.String("answer", rewrite.Answer),
+		)
+	}
+
+	for _, change := range plan.Update {
+		logger.Info(
+			"DNS rewrite would be updated",
+			slog.String(
+				"domain",
+				change.Desired.Domain,
+			),
+			slog.String(
+				"current_answer",
+				change.Current.Answer,
+			),
+			slog.String(
+				"desired_answer",
+				change.Desired.Answer,
+			),
+		)
+	}
+
+	for _, rewrite := range plan.Unchanged {
+		logger.Debug(
+			"DNS rewrite already current",
+			slog.String("domain", rewrite.Domain),
+			slog.String("answer", rewrite.Answer),
+		)
+	}
+
+	for _, rewrite := range plan.Unmanaged {
+		logger.Debug(
+			"Leaving unrelated DNS rewrite unchanged",
+			slog.String("domain", rewrite.Domain),
+			slog.String("answer", rewrite.Answer),
+		)
+	}
+
+	logger.Info(
+		"DNS reconciliation plan complete",
+		slog.Int("add", len(plan.Add)),
+		slog.Int("update", len(plan.Update)),
+		slog.Int(
+			"unchanged",
+			len(plan.Unchanged),
+		),
+		slog.Int(
+			"unmanaged",
+			len(plan.Unmanaged),
+		),
+		slog.Bool("dry_run", true),
 	)
 }
