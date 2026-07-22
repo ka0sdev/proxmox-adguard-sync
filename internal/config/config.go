@@ -54,6 +54,7 @@ type FilterConfig struct {
 }
 
 type DiscoveryConfig struct {
+	QEMUOrder           []string
 	LXCOrder            []string
 	DescriptionIPKeys   []string
 	DescriptionNameKeys []string
@@ -138,9 +139,26 @@ func Load() (Config, error) {
 			),
 		},
 		Discovery: DiscoveryConfig{
-			LXCOrder: environmentCSV(
-				"LXC_DISCOVERY_ORDER",
-				[]string{"config", "description"},
+			QEMUOrder: environmentCSVFirst(
+				[]string{
+					"DISCOVERY_VM_ORDER",
+					"VM_DISCOVERY_ORDER",
+				},
+				[]string{
+					"guest-agent",
+					"description",
+					"cloudinit",
+				},
+			),
+			LXCOrder: environmentCSVFirst(
+				[]string{
+					"DISCOVERY_LXC_ORDER",
+					"LXC_DISCOVERY_ORDER",
+				},
+				[]string{
+					"config",
+					"description",
+				},
 			),
 			DescriptionIPKeys: environmentCSV(
 				"DESCRIPTION_IP_KEYS",
@@ -238,6 +256,28 @@ func (c Config) Validate() error {
 		}
 	}
 
+	for _, source := range c.Discovery.QEMUOrder {
+		switch source {
+		case "guest-agent", "description", "cloudinit":
+		default:
+			return fmt.Errorf(
+				"DISCOVERY_VM_ORDER contains unsupported source %q",
+				source,
+			)
+		}
+	}
+
+	for _, source := range c.Discovery.LXCOrder {
+		switch source {
+		case "config", "description":
+		default:
+			return fmt.Errorf(
+				"DISCOVERY_LXC_ORDER contains unsupported source %q",
+				source,
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -292,7 +332,25 @@ func environmentBool(name string, defaultValue bool) (bool, error) {
 }
 
 func environmentCSV(name string, defaultValue []string) []string {
-	value := strings.TrimSpace(os.Getenv(name))
+	return environmentCSVFirst(
+		[]string{name},
+		defaultValue,
+	)
+}
+
+func environmentCSVFirst(
+	names []string,
+	defaultValue []string,
+) []string {
+	var value string
+
+	for _, name := range names {
+		value = strings.TrimSpace(os.Getenv(name))
+		if value != "" {
+			break
+		}
+	}
+
 	if value == "" {
 		return append([]string(nil), defaultValue...)
 	}
@@ -301,7 +359,10 @@ func environmentCSV(name string, defaultValue []string) []string {
 	values := make([]string, 0, len(parts))
 
 	for _, part := range parts {
-		normalized := strings.ToLower(strings.TrimSpace(part))
+		normalized := strings.ToLower(
+			strings.TrimSpace(part),
+		)
+
 		if normalized != "" {
 			values = append(values, normalized)
 		}

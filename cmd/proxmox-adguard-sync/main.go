@@ -13,13 +13,17 @@ import (
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/selection"
 )
 
-const (
-	applicationName = "proxmox-adguard-sync"
-)
+const applicationName = "proxmox-adguard-sync"
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", applicationName, err)
+		fmt.Fprintf(
+			os.Stderr,
+			"%s: %v\n",
+			applicationName,
+			err,
+		)
+
 		os.Exit(1)
 	}
 }
@@ -27,7 +31,10 @@ func main() {
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("load configuration: %w", err)
+		return fmt.Errorf(
+			"load configuration: %w",
+			err,
+		)
 	}
 
 	logger, err := logging.New(
@@ -36,7 +43,10 @@ func run() error {
 		cfg.Logging.Format,
 	)
 	if err != nil {
-		return fmt.Errorf("initialize logger: %w", err)
+		return fmt.Errorf(
+			"initialize logger: %w",
+			err,
+		)
 	}
 
 	slog.SetDefault(logger)
@@ -44,12 +54,30 @@ func run() error {
 	logger.Info(
 		"Starting application",
 		slog.String("application", applicationName),
-		slog.String("sync_interval", cfg.SyncInterval.String()),
-		slog.String("log_level", cfg.Logging.Level),
-		slog.String("log_format", cfg.Logging.Format),
-		slog.String("proxmox_url", cfg.Proxmox.BaseURL),
-		slog.Bool("proxmox_verify_tls", cfg.Proxmox.VerifyTLS),
-		slog.String("adguard_url", cfg.AdGuard.BaseURL),
+		slog.String(
+			"sync_interval",
+			cfg.SyncInterval.String(),
+		),
+		slog.String(
+			"log_level",
+			cfg.Logging.Level,
+		),
+		slog.String(
+			"log_format",
+			cfg.Logging.Format,
+		),
+		slog.String(
+			"proxmox_url",
+			cfg.Proxmox.BaseURL,
+		),
+		slog.Bool(
+			"proxmox_verify_tls",
+			cfg.Proxmox.VerifyTLS,
+		),
+		slog.String(
+			"adguard_url",
+			cfg.AdGuard.BaseURL,
+		),
 	)
 
 	proxmoxClient, err := proxmox.NewClient(
@@ -61,7 +89,10 @@ func run() error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("initialize Proxmox client: %w", err)
+		return fmt.Errorf(
+			"initialize Proxmox client: %w",
+			err,
+		)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -69,22 +100,32 @@ func run() error {
 
 	version, err := proxmoxClient.Version(ctx)
 	if err != nil {
-		return fmt.Errorf("verify Proxmox connection: %w", err)
+		return fmt.Errorf(
+			"verify Proxmox connection: %w",
+			err,
+		)
 	}
 
 	logger.Info(
 		"Connected to Proxmox",
 		slog.String("version", version.Version),
 		slog.String("release", version.Release),
-		slog.String("repository_id", version.RepoID),
+		slog.String(
+			"repository_id",
+			version.RepoID,
+		),
 	)
 
 	guests, err := proxmoxClient.ListGuests(ctx)
 	if err != nil {
-		return fmt.Errorf("retrieve Proxmox guests: %w", err)
+		return fmt.Errorf(
+			"retrieve Proxmox guests: %w",
+			err,
+		)
 	}
 
 	selector := selection.New(cfg.Filters)
+
 	selectedGuests, excludedGuests := selector.Filter(guests)
 
 	logGuestSelection(
@@ -94,13 +135,16 @@ func run() error {
 		excludedGuests,
 	)
 
-	discoverGuestMetadata(
+	resolvedGuests := resolveGuests(
 		ctx,
 		logger,
 		proxmoxClient,
 		cfg.Discovery,
 		selectedGuests,
 	)
+
+	// This will be consumed by the AdGuard planning layer later.
+	_ = resolvedGuests
 
 	return nil
 }
@@ -116,7 +160,10 @@ func logGuestSelection(
 			"Selected guest",
 			slog.Int("vmid", guest.VMID),
 			slog.String("name", guest.Name),
-			slog.String("type", string(guest.Type)),
+			slog.String(
+				"type",
+				string(guest.Type),
+			),
 			slog.String("status", guest.Status),
 			slog.Any("tags", guest.ParsedTags()),
 		)
@@ -125,176 +172,238 @@ func logGuestSelection(
 	for _, result := range excludedGuests {
 		logger.Debug(
 			"Excluded guest",
-			slog.Int("vmid", result.Guest.VMID),
-			slog.String("name", result.Guest.Name),
-			slog.String("type", string(result.Guest.Type)),
-			slog.String("reason", string(result.Reason)),
-			slog.Any("tags", result.GuestTags),
+			slog.Int(
+				"vmid",
+				result.Guest.VMID,
+			),
+			slog.String(
+				"name",
+				result.Guest.Name,
+			),
+			slog.String(
+				"type",
+				string(result.Guest.Type),
+			),
+			slog.String(
+				"reason",
+				string(result.Reason),
+			),
+			slog.Any(
+				"tags",
+				result.GuestTags,
+			),
 		)
 	}
 
 	logger.Info(
 		"Guest filtering complete",
-		slog.Int("discovered", len(allGuests)),
-		slog.Int("selected", len(selectedGuests)),
-		slog.Int("excluded", len(excludedGuests)),
+		slog.Int(
+			"discovered",
+			len(allGuests),
+		),
+		slog.Int(
+			"selected",
+			len(selectedGuests),
+		),
+		slog.Int(
+			"excluded",
+			len(excludedGuests),
+		),
 	)
 }
 
-func discoverGuestMetadata(
+func resolveGuests(
 	ctx context.Context,
 	logger *slog.Logger,
 	client *proxmox.Client,
 	discoveryConfig config.DiscoveryConfig,
 	guests []proxmox.Guest,
-) {
-	var (
-		configurationsRetrieved int
-		configurationsFailed    int
-		lxcStaticAddresses      int
-		descriptionAddresses    int
-		descriptionNames        int
+) []discovery.ResolvedGuest {
+	resolver := discovery.NewResolver(discoveryConfig)
+
+	resolved := make(
+		[]discovery.ResolvedGuest,
+		0,
+		len(guests),
 	)
 
+	var failed int
+
 	for _, guest := range guests {
-		var (
-			guestConfig proxmox.GuestConfig
-			err         error
+		guestConfig, err := retrieveGuestConfig(
+			ctx,
+			client,
+			guest,
 		)
-
-		switch guest.Type {
-		case proxmox.GuestTypeLXC:
-			guestConfig, err = client.GetLXCConfig(
-				ctx,
-				guest.Node,
-				guest.VMID,
-			)
-		case proxmox.GuestTypeQEMU:
-			guestConfig, err = client.GetQEMUConfig(
-				ctx,
-				guest.Node,
-				guest.VMID,
-			)
-		default:
-			continue
-		}
-
 		if err != nil {
-			configurationsFailed++
+			failed++
 
 			logger.Warn(
-				"failed to retrieve guest configuration",
+				"Guest configuration retrieval failed",
 				slog.Int("vmid", guest.VMID),
 				slog.String("name", guest.Name),
-				slog.String("node", guest.Node),
-				slog.String("type", string(guest.Type)),
-				slog.String("error", err.Error()),
+				slog.String(
+					"type",
+					string(guest.Type),
+				),
+				slog.String(
+					"error",
+					err.Error(),
+				),
 			)
 
 			continue
 		}
 
-		configurationsRetrieved++
+		var agentInterfaces []proxmox.QEMUAgentInterface
 
-		if guest.Type == proxmox.GuestTypeLXC {
-			lxcResult, found :=
-				discovery.DiscoverLXCConfigIPv4(guestConfig)
+		if guest.Type == proxmox.GuestTypeQEMU &&
+			discoverySourceEnabled(
+				discoveryConfig.QEMUOrder,
+				"guest-agent",
+			) {
+			agentInterfaces, err =
+				client.GetQEMUAgentInterfaces(
+					ctx,
+					guest.Node,
+					guest.VMID,
+				)
 
-			if found {
-				lxcStaticAddresses++
-
-				logger.Info(
-					"Discovered LXC IPv4",
+			if err != nil {
+				logger.Debug(
+					"QEMU Guest Agent unavailable",
 					slog.Int("vmid", guest.VMID),
 					slog.String("name", guest.Name),
-					slog.String("address", lxcResult.Address.String()),
-					slog.String("interface", lxcResult.InterfaceName),
+					slog.String(
+						"error",
+						err.Error(),
+					),
 				)
+
+				agentInterfaces = nil
 			}
 		}
 
-		descriptionResult := discovery.ParseDescription(
-			guestConfig.StringValue("description"),
-			discoveryConfig.DescriptionIPKeys,
-			discoveryConfig.DescriptionNameKeys,
+		result, err := resolver.ResolveWithQEMUAgent(
+			guest,
+			guestConfig,
+			agentInterfaces,
 		)
+		if err != nil {
+			failed++
 
-		if descriptionResult.HasAddress {
-			descriptionAddresses++
-
-			logger.Info(
-				"Discovered description IPv4",
+			logger.Warn(
+				"Guest resolution failed",
 				slog.Int("vmid", guest.VMID),
 				slog.String("name", guest.Name),
-				slog.String("node", guest.Node),
-				slog.String("type", string(guest.Type)),
 				slog.String(
-					"address",
-					descriptionResult.Address.String(),
+					"type",
+					string(guest.Type),
 				),
 				slog.String(
-					"metadata_key",
-					descriptionResult.AddressKey,
+					"error",
+					err.Error(),
 				),
 			)
+
+			continue
 		}
 
-		if descriptionResult.HasName {
-			descriptionNames++
+		resolved = append(resolved, result)
 
-			logger.Info(
-				"Discovered description name",
-				slog.Int("vmid", guest.VMID),
-				slog.String("name", guest.Name),
-				slog.String("node", guest.Node),
-				slog.String("type", string(guest.Type)),
-				slog.String(
-					"override_name",
-					descriptionResult.Name,
-				),
-				slog.String(
-					"metadata_key",
-					descriptionResult.NameKey,
-				),
-			)
-		}
-
-		if guest.Type == proxmox.GuestTypeLXC &&
-			!descriptionResult.HasAddress {
-			if _, found := discovery.DiscoverLXCConfigIPv4(
-				guestConfig,
-			); !found {
-				logger.Warn(
-					"no LXC IPv4 discovery result",
-					slog.Int("vmid", guest.VMID),
-					slog.String("name", guest.Name),
-					slog.String("node", guest.Node),
-				)
-			}
-		}
+		logResolvedGuest(logger, result)
 	}
 
 	logger.Info(
-		"Guest metadata discovery complete",
+		"Guest resolution complete",
+		slog.Int("selected", len(guests)),
+		slog.Int("resolved", len(resolved)),
+		slog.Int("failed", failed),
+	)
+
+	return resolved
+}
+
+func retrieveGuestConfig(
+	ctx context.Context,
+	client *proxmox.Client,
+	guest proxmox.Guest,
+) (proxmox.GuestConfig, error) {
+	switch guest.Type {
+	case proxmox.GuestTypeLXC:
+		return client.GetLXCConfig(
+			ctx,
+			guest.Node,
+			guest.VMID,
+		)
+
+	case proxmox.GuestTypeQEMU:
+		return client.GetQEMUConfig(
+			ctx,
+			guest.Node,
+			guest.VMID,
+		)
+
+	default:
+		return nil, fmt.Errorf(
+			"unsupported guest type %q",
+			guest.Type,
+		)
+	}
+}
+
+func discoverySourceEnabled(
+	sources []string,
+	wanted string,
+) bool {
+	for _, source := range sources {
+		if source == wanted {
+			return true
+		}
+	}
+
+	return false
+}
+
+func logResolvedGuest(
+	logger *slog.Logger,
+	result discovery.ResolvedGuest,
+) {
+	attributes := []any{
 		slog.Int(
-			"configurations_retrieved",
-			configurationsRetrieved,
+			"vmid",
+			result.Guest.VMID,
 		),
-		slog.Int(
-			"configurations_failed",
-			configurationsFailed,
+		slog.String(
+			"name",
+			result.Guest.Name,
 		),
-		slog.Int(
-			"lxc_static_addresses",
-			lxcStaticAddresses,
+		slog.String(
+			"hostname",
+			result.Hostname,
 		),
-		slog.Int(
-			"description_addresses",
-			descriptionAddresses,
+		slog.String(
+			"address",
+			result.Address.String(),
 		),
-		slog.Int(
-			"description_names",
-			descriptionNames,
+		slog.String(
+			"source",
+			string(result.Source),
 		),
+	}
+
+	if result.InterfaceName != "" {
+		attributes = append(
+			attributes,
+			slog.String(
+				"interface",
+				result.InterfaceName,
+			),
+		)
+	}
+
+	logger.Info(
+		"Resolved guest",
+		attributes...,
 	)
 }
