@@ -1,5 +1,11 @@
 # Proxmox → AdGuard Home DNS Sync
 
+> [!NOTE]
+> This repository now uses the Go implementation by default.  
+> The original JavaScript version is preserved on the [`legacy-javascript`](https://github.com/ka0sdev/proxmox-adguard-sync/tree/legacy-javascript) branch.
+
+# Proxmox → AdGuard Home DNS Sync
+
 A lightweight Go service that discovers Proxmox VE guests and synchronizes their IPv4 addresses into AdGuard Home DNS rewrites.
 
 The service supports both QEMU/KVM virtual machines and LXC containers, configurable discovery strategies, filtering, safe ownership tracking, dry-run operation, and continuous reconciliation.
