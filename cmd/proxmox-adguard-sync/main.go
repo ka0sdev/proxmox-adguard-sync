@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/adguard"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
@@ -17,6 +21,14 @@ import (
 )
 
 const applicationName = "proxmox-adguard-sync"
+
+type application struct {
+	config        config.Config
+	logger        *slog.Logger
+	proxmoxClient *proxmox.Client
+	adguardClient *adguard.Client
+	stateStore    *state.Store
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -53,6 +65,51 @@ func run() error {
 	}
 
 	slog.SetDefault(logger)
+
+	proxmoxClient, err := proxmox.NewClient(
+		proxmox.ClientOptions{
+			BaseURL:     cfg.Proxmox.BaseURL,
+			TokenID:     cfg.Proxmox.APITokenID,
+			TokenSecret: cfg.Proxmox.APITokenSecret,
+			VerifyTLS:   cfg.Proxmox.VerifyTLS,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"initialize Proxmox client: %w",
+			err,
+		)
+	}
+
+	adguardClient, err := adguard.NewClient(
+		adguard.ClientOptions{
+			BaseURL:  cfg.AdGuard.BaseURL,
+			Username: cfg.AdGuard.Username,
+			Password: cfg.AdGuard.Password,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"initialize AdGuard client: %w",
+			err,
+		)
+	}
+
+	stateStore, err := state.NewStore(cfg.State.File)
+	if err != nil {
+		return fmt.Errorf(
+			"initialize state store: %w",
+			err,
+		)
+	}
+
+	app := application{
+		config:        cfg,
+		logger:        logger,
+		proxmoxClient: proxmoxClient,
+		adguardClient: adguardClient,
+		stateStore:    stateStore,
+	}
 
 	logger.Info(
 		"Starting application",
@@ -98,27 +155,30 @@ func run() error {
 		),
 	)
 
-	ctx, cancel := context.WithCancel(
+	ctx, stop := signal.NotifyContext(
 		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
 	)
-	defer cancel()
+	defer stop()
 
-	proxmoxClient, err := proxmox.NewClient(
-		proxmox.ClientOptions{
-			BaseURL:     cfg.Proxmox.BaseURL,
-			TokenID:     cfg.Proxmox.APITokenID,
-			TokenSecret: cfg.Proxmox.APITokenSecret,
-			VerifyTLS:   cfg.Proxmox.VerifyTLS,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"initialize Proxmox client: %w",
-			err,
-		)
+	if err := app.verifyConnections(ctx); err != nil {
+		return err
 	}
 
-	version, err := proxmoxClient.Version(ctx)
+	if err := app.runLoop(ctx); err != nil {
+		return err
+	}
+
+	logger.Info("Application stopped")
+
+	return nil
+}
+
+func (a *application) verifyConnections(
+	ctx context.Context,
+) error {
+	version, err := a.proxmoxClient.Version(ctx)
 	if err != nil {
 		return fmt.Errorf(
 			"verify Proxmox connection: %w",
@@ -126,7 +186,7 @@ func run() error {
 		)
 	}
 
-	logger.Info(
+	a.logger.Info(
 		"Connected to Proxmox",
 		slog.String(
 			"version",
@@ -142,7 +202,94 @@ func run() error {
 		),
 	)
 
-	guests, err := proxmoxClient.ListGuests(ctx)
+	if _, err := a.adguardClient.ListRewrites(ctx); err != nil {
+		return fmt.Errorf(
+			"verify AdGuard connection: %w",
+			err,
+		)
+	}
+
+	a.logger.Info("Connected to AdGuard Home")
+
+	return nil
+}
+
+func (a *application) runLoop(
+	ctx context.Context,
+) error {
+	if err := a.synchronize(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+
+		a.logger.Error(
+			"Initial synchronization failed",
+			slog.String(
+				"error",
+				err.Error(),
+			),
+		)
+	}
+
+	ticker := time.NewTicker(
+		a.config.SyncInterval,
+	)
+	defer ticker.Stop()
+
+	a.logger.Info(
+		"Synchronization loop started",
+		slog.String(
+			"interval",
+			a.config.SyncInterval.String(),
+		),
+	)
+
+	for {
+		select {
+		case <-ctx.Done():
+			a.logger.Info(
+				"Shutdown signal received",
+			)
+
+			return nil
+
+		case tickTime := <-ticker.C:
+			a.logger.Debug(
+				"Scheduled synchronization started",
+				slog.Time(
+					"scheduled_at",
+					tickTime,
+				),
+			)
+
+			if err := a.synchronize(ctx); err != nil {
+				if errors.Is(
+					err,
+					context.Canceled,
+				) {
+					return nil
+				}
+
+				a.logger.Error(
+					"Scheduled synchronization failed",
+					slog.String(
+						"error",
+						err.Error(),
+					),
+				)
+			}
+		}
+	}
+}
+
+func (a *application) synchronize(
+	ctx context.Context,
+) error {
+	startedAt := time.Now()
+
+	a.logger.Info("Synchronization started")
+
+	guests, err := a.proxmoxClient.ListGuests(ctx)
 	if err != nil {
 		return fmt.Errorf(
 			"retrieve Proxmox guests: %w",
@@ -150,13 +297,15 @@ func run() error {
 		)
 	}
 
-	selector := selection.New(cfg.Filters)
+	selector := selection.New(
+		a.config.Filters,
+	)
 
 	selectedGuests, excludedGuests :=
 		selector.Filter(guests)
 
 	logGuestSelection(
-		logger,
+		a.logger,
 		guests,
 		selectedGuests,
 		excludedGuests,
@@ -164,16 +313,16 @@ func run() error {
 
 	resolvedGuests := resolveGuests(
 		ctx,
-		logger,
-		proxmoxClient,
-		cfg.Discovery,
+		a.logger,
+		a.proxmoxClient,
+		a.config.Discovery,
 		selectedGuests,
 	)
 
 	desiredRewrites, err :=
 		reconcile.BuildDesiredRewrites(
 			resolvedGuests,
-			cfg.DNS.Suffix,
+			a.config.DNS.Suffix,
 		)
 	if err != nil {
 		return fmt.Errorf(
@@ -182,22 +331,8 @@ func run() error {
 		)
 	}
 
-	adguardClient, err := adguard.NewClient(
-		adguard.ClientOptions{
-			BaseURL:  cfg.AdGuard.BaseURL,
-			Username: cfg.AdGuard.Username,
-			Password: cfg.AdGuard.Password,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"initialize AdGuard client: %w",
-			err,
-		)
-	}
-
 	currentRewrites, err :=
-		adguardClient.ListRewrites(ctx)
+		a.adguardClient.ListRewrites(ctx)
 	if err != nil {
 		return fmt.Errorf(
 			"retrieve AdGuard rewrites: %w",
@@ -205,17 +340,7 @@ func run() error {
 		)
 	}
 
-	stateStore, err := state.NewStore(
-		cfg.State.File,
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"initialize state store: %w",
-			err,
-		)
-	}
-
-	stateFile, err := stateStore.Load()
+	stateFile, err := a.stateStore.Load()
 	if err != nil {
 		return fmt.Errorf(
 			"load ownership state: %w",
@@ -223,11 +348,11 @@ func run() error {
 		)
 	}
 
-	logger.Info(
+	a.logger.Info(
 		"Ownership state loaded",
 		slog.String(
 			"path",
-			stateStore.Path(),
+			a.stateStore.Path(),
 		),
 		slog.Int(
 			"managed",
@@ -242,19 +367,23 @@ func run() error {
 	)
 
 	logReconciliationPlan(
-		logger,
+		a.logger,
 		plan,
-		cfg.Runtime.DryRun,
+		a.config.Runtime.DryRun,
 	)
 
-	if cfg.Runtime.DryRun {
-		logger.Info(
+	if a.config.Runtime.DryRun {
+		a.logger.Info(
 			"Dry run complete",
 			slog.Int(
 				"planned_changes",
 				len(plan.Add)+
 					len(plan.Update)+
 					len(plan.Delete),
+			),
+			slog.Duration(
+				"duration",
+				time.Since(startedAt),
 			),
 		)
 
@@ -263,7 +392,7 @@ func run() error {
 
 	executionResult, err := reconcile.Execute(
 		ctx,
-		adguardClient,
+		a.adguardClient,
 		plan,
 	)
 	if err != nil {
@@ -273,7 +402,7 @@ func run() error {
 		)
 	}
 
-	logger.Info(
+	a.logger.Info(
 		"DNS reconciliation applied",
 		slog.Int(
 			"added",
@@ -289,6 +418,53 @@ func run() error {
 		),
 	)
 
+	nextState := buildOwnershipState(
+		desiredRewrites,
+	)
+
+	if err := a.stateStore.Save(nextState); err != nil {
+		return fmt.Errorf(
+			"save ownership state: %w",
+			err,
+		)
+	}
+
+	a.logger.Info(
+		"Ownership state saved",
+		slog.String(
+			"path",
+			a.stateStore.Path(),
+		),
+		slog.Int(
+			"managed",
+			len(nextState.Records),
+		),
+	)
+
+	a.logger.Info(
+		"Synchronization complete",
+		slog.Int(
+			"desired",
+			len(desiredRewrites),
+		),
+		slog.Int(
+			"changes",
+			executionResult.Added+
+				executionResult.Updated+
+				executionResult.Deleted,
+		),
+		slog.Duration(
+			"duration",
+			time.Since(startedAt),
+		),
+	)
+
+	return nil
+}
+
+func buildOwnershipState(
+	desiredRewrites []adguard.Rewrite,
+) state.File {
 	nextState := state.File{
 		Records: make(
 			[]state.Record,
@@ -307,26 +483,7 @@ func run() error {
 		)
 	}
 
-	if err := stateStore.Save(nextState); err != nil {
-		return fmt.Errorf(
-			"save ownership state: %w",
-			err,
-		)
-	}
-
-	logger.Info(
-		"Ownership state saved",
-		slog.String(
-			"path",
-			stateStore.Path(),
-		),
-		slog.Int(
-			"managed",
-			len(nextState.Records),
-		),
-	)
-
-	return nil
+	return nextState
 }
 
 func logGuestSelection(
@@ -424,12 +581,20 @@ func resolveGuests(
 	var failed int
 
 	for _, guest := range guests {
+		if err := ctx.Err(); err != nil {
+			break
+		}
+
 		guestConfig, err := retrieveGuestConfig(
 			ctx,
 			client,
 			guest,
 		)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				break
+			}
+
 			failed++
 
 			logger.Warn(
@@ -470,6 +635,13 @@ func resolveGuests(
 				)
 
 			if err != nil {
+				if errors.Is(
+					err,
+					context.Canceled,
+				) {
+					break
+				}
+
 				logger.Debug(
 					"QEMU Guest Agent unavailable",
 					slog.Int(
