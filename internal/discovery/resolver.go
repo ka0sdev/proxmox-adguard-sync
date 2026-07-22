@@ -13,9 +13,10 @@ import (
 type Source string
 
 const (
-	SourceLXCConfig   Source = "lxc_config"
-	SourceQEMUAgent   Source = "qemu_guest_agent"
-	SourceDescription Source = "description"
+	SourceLXCConfig     Source = "lxc_config"
+	SourceQEMUAgent     Source = "qemu_guest_agent"
+	SourceDescription   Source = "description"
+	SourceQEMUCloudInit Source = "qemu_cloud_init"
 )
 
 var ErrEmptyHostname = errors.New(
@@ -196,8 +197,20 @@ func (r Resolver) resolveQEMU(
 			}, nil
 
 		case "cloudinit":
-			// Cloud-init discovery is added in the next step.
-			continue
+			result, found :=
+				DiscoverCloudInitIPv4(guestConfig)
+
+			if !found {
+				continue
+			}
+
+			return ResolvedGuest{
+				Guest:         guest,
+				Address:       result.Address,
+				Hostname:      hostname,
+				Source:        SourceQEMUCloudInit,
+				InterfaceName: result.ConfigName,
+			}, nil
 		}
 	}
 

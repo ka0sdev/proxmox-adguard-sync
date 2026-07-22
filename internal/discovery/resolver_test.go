@@ -658,3 +658,198 @@ func TestResolverRejectsUnsupportedGuestType(t *testing.T) {
 		)
 	}
 }
+
+func TestResolverUsesCloudInitFallback(t *testing.T) {
+	resolver := NewResolver(config.DiscoveryConfig{
+		QEMUOrder: []string{
+			"guest-agent",
+			"description",
+			"cloudinit",
+		},
+		DescriptionIPKeys:   []string{"dns_ip"},
+		DescriptionNameKeys: []string{"dns_name"},
+	})
+
+	guest := proxmox.Guest{
+		VMID: 101,
+		Name: "devbox-vm",
+		Node: "pm",
+		Type: proxmox.GuestTypeQEMU,
+	}
+
+	guestConfig := proxmox.GuestConfig{
+		"ipconfig0": json.RawMessage(
+			`"ip=172.20.20.10/24,gw=172.20.20.1"`,
+		),
+	}
+
+	result, err := resolver.ResolveWithQEMUAgent(
+		guest,
+		guestConfig,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf(
+			"ResolveWithQEMUAgent() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	if result.Address.String() != "172.20.20.10" {
+		t.Errorf(
+			"Address = %q, expected %q",
+			result.Address,
+			"172.20.20.10",
+		)
+	}
+
+	if result.Hostname != "devbox-vm" {
+		t.Errorf(
+			"Hostname = %q, expected %q",
+			result.Hostname,
+			"devbox-vm",
+		)
+	}
+
+	if result.Source != SourceQEMUCloudInit {
+		t.Errorf(
+			"Source = %q, expected %q",
+			result.Source,
+			SourceQEMUCloudInit,
+		)
+	}
+
+	if result.InterfaceName != "ipconfig0" {
+		t.Errorf(
+			"InterfaceName = %q, expected %q",
+			result.InterfaceName,
+			"ipconfig0",
+		)
+	}
+}
+
+func TestResolverPrefersDescriptionOverCloudInit(
+	t *testing.T,
+) {
+	resolver := NewResolver(config.DiscoveryConfig{
+		QEMUOrder: []string{
+			"guest-agent",
+			"description",
+			"cloudinit",
+		},
+		DescriptionIPKeys:   []string{"dns_ip"},
+		DescriptionNameKeys: []string{"dns_name"},
+	})
+
+	guest := proxmox.Guest{
+		VMID: 101,
+		Name: "devbox-vm",
+		Node: "pm",
+		Type: proxmox.GuestTypeQEMU,
+	}
+
+	guestConfig := proxmox.GuestConfig{
+		"description": json.RawMessage(
+			`"dns_ip=172.20.20.99"`,
+		),
+		"ipconfig0": json.RawMessage(
+			`"ip=172.20.20.10/24"`,
+		),
+	}
+
+	result, err := resolver.ResolveWithQEMUAgent(
+		guest,
+		guestConfig,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf(
+			"ResolveWithQEMUAgent() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	if result.Address.String() != "172.20.20.99" {
+		t.Errorf(
+			"Address = %q, expected %q",
+			result.Address,
+			"172.20.20.99",
+		)
+	}
+
+	if result.Source != SourceDescription {
+		t.Errorf(
+			"Source = %q, expected %q",
+			result.Source,
+			SourceDescription,
+		)
+	}
+}
+
+func TestResolverSupportsCloudInitFirst(t *testing.T) {
+	resolver := NewResolver(config.DiscoveryConfig{
+		QEMUOrder: []string{
+			"cloudinit",
+			"guest-agent",
+			"description",
+		},
+		DescriptionIPKeys:   []string{"dns_ip"},
+		DescriptionNameKeys: []string{"dns_name"},
+	})
+
+	guest := proxmox.Guest{
+		VMID: 101,
+		Name: "devbox-vm",
+		Node: "pm",
+		Type: proxmox.GuestTypeQEMU,
+	}
+
+	guestConfig := proxmox.GuestConfig{
+		"description": json.RawMessage(
+			`"dns_ip=172.20.20.99"`,
+		),
+		"ipconfig0": json.RawMessage(
+			`"ip=172.20.20.10/24"`,
+		),
+	}
+
+	interfaces := []proxmox.QEMUAgentInterface{
+		{
+			Name: "ens18",
+			IPAddresses: []proxmox.QEMUAgentIPAddress{
+				{
+					Type:    "ipv4",
+					Address: "172.20.20.50",
+				},
+			},
+		},
+	}
+
+	result, err := resolver.ResolveWithQEMUAgent(
+		guest,
+		guestConfig,
+		interfaces,
+	)
+	if err != nil {
+		t.Fatalf(
+			"ResolveWithQEMUAgent() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	if result.Address.String() != "172.20.20.10" {
+		t.Errorf(
+			"Address = %q, expected %q",
+			result.Address,
+			"172.20.20.10",
+		)
+	}
+
+	if result.Source != SourceQEMUCloudInit {
+		t.Errorf(
+			"Source = %q, expected %q",
+			result.Source,
+			SourceQEMUCloudInit,
+		)
+	}
+}
