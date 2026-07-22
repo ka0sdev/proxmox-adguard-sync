@@ -1,6 +1,10 @@
+> [!WARNING]
+> This Go implementation is still under active development and is currently considered pre-release software. It has not yet completed production validation and should not be used in production environments.
+>
+> Use `DRY_RUN=true` while evaluating the project, review all planned DNS changes carefully, and maintain an independent backup of your AdGuard Home configuration and ownership state.
+
 > [!NOTE]
-> This repository now uses the Go implementation by default.  
-> The original JavaScript version is preserved on the [`legacy-javascript`](https://github.com/ka0sdev/proxmox-adguard-sync/tree/legacy-javascript) branch.
+> The original JavaScript implementation is preserved on the [`legacy-javascript`](https://github.com/ka0sdev/proxmox-adguard-sync/tree/legacy-javascript) branch.
 
 # Proxmox → AdGuard Home DNS Sync
 
