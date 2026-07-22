@@ -54,6 +54,7 @@ type FilterConfig struct {
 }
 
 type DiscoveryConfig struct {
+	LXCOrder            []string
 	DescriptionIPKeys   []string
 	DescriptionNameKeys []string
 }
@@ -137,6 +138,10 @@ func Load() (Config, error) {
 			),
 		},
 		Discovery: DiscoveryConfig{
+			LXCOrder: environmentCSV(
+				"LXC_DISCOVERY_ORDER",
+				[]string{"config", "description"},
+			),
 			DescriptionIPKeys: environmentCSV(
 				"DESCRIPTION_IP_KEYS",
 				[]string{"dns_ip", "ip"},
