@@ -19,6 +19,7 @@ const (
 type Config struct {
 	Proxmox   ProxmoxConfig
 	AdGuard   AdGuardConfig
+	DNS       DNSConfig
 	Logging   LoggingConfig
 	Filters   FilterConfig
 	Discovery DiscoveryConfig
@@ -37,6 +38,10 @@ type AdGuardConfig struct {
 	BaseURL  string
 	Username string
 	Password string
+}
+
+type DNSConfig struct {
+	Suffix string
 }
 
 type LoggingConfig struct {
@@ -106,6 +111,12 @@ func Load() (Config, error) {
 			),
 			Password: strings.TrimSpace(
 				os.Getenv("ADGUARD_PASSWORD"),
+			),
+		},
+		DNS: DNSConfig{
+			Suffix: environmentOrDefault(
+				"DNS_SUFFIX",
+				"internal",
 			),
 		},
 		Logging: LoggingConfig{
@@ -224,6 +235,10 @@ func (c Config) Validate() error {
 
 	if c.AdGuard.Password == "" {
 		missing = append(missing, "ADGUARD_PASSWORD")
+	}
+
+	if strings.TrimSpace(c.DNS.Suffix) == "" {
+		return errors.New("DNS_SUFFIX must not be empty")
 	}
 
 	if len(missing) > 0 {
