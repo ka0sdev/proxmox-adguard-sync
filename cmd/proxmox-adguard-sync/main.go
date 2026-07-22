@@ -72,6 +72,10 @@ func run() error {
 			"log_format",
 			cfg.Logging.Format,
 		),
+		slog.Bool(
+			"dry_run",
+			cfg.Runtime.DryRun,
+		),
 		slog.String(
 			"proxmox_url",
 			cfg.Proxmox.BaseURL,
@@ -240,6 +244,86 @@ func run() error {
 	logReconciliationPlan(
 		logger,
 		plan,
+		cfg.Runtime.DryRun,
+	)
+
+	if cfg.Runtime.DryRun {
+		logger.Info(
+			"Dry run complete",
+			slog.Int(
+				"planned_changes",
+				len(plan.Add)+
+					len(plan.Update)+
+					len(plan.Delete),
+			),
+		)
+
+		return nil
+	}
+
+	executionResult, err := reconcile.Execute(
+		ctx,
+		adguardClient,
+		plan,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"apply DNS reconciliation plan: %w",
+			err,
+		)
+	}
+
+	logger.Info(
+		"DNS reconciliation applied",
+		slog.Int(
+			"added",
+			executionResult.Added,
+		),
+		slog.Int(
+			"updated",
+			executionResult.Updated,
+		),
+		slog.Int(
+			"deleted",
+			executionResult.Deleted,
+		),
+	)
+
+	nextState := state.File{
+		Records: make(
+			[]state.Record,
+			0,
+			len(desiredRewrites),
+		),
+	}
+
+	for _, rewrite := range desiredRewrites {
+		nextState.Records = append(
+			nextState.Records,
+			state.Record{
+				Domain: rewrite.Domain,
+				Answer: rewrite.Answer,
+			},
+		)
+	}
+
+	if err := stateStore.Save(nextState); err != nil {
+		return fmt.Errorf(
+			"save ownership state: %w",
+			err,
+		)
+	}
+
+	logger.Info(
+		"Ownership state saved",
+		slog.String(
+			"path",
+			stateStore.Path(),
+		),
+		slog.Int(
+			"managed",
+			len(nextState.Records),
+		),
 	)
 
 	return nil
@@ -555,6 +639,7 @@ func logResolvedGuest(
 func logReconciliationPlan(
 	logger *slog.Logger,
 	plan reconcile.Plan,
+	dryRun bool,
 ) {
 	for _, rewrite := range plan.Add {
 		logger.Info(
@@ -654,7 +739,7 @@ func logReconciliationPlan(
 		),
 		slog.Bool(
 			"dry_run",
-			true,
+			dryRun,
 		),
 	)
 }
