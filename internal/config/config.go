@@ -14,6 +14,7 @@ const (
 	defaultLogLevel       = "info"
 	defaultLogFormat      = "text"
 	defaultProxmoxTLSMode = true
+	defaultDryRun         = true
 )
 
 type Config struct {
@@ -21,6 +22,7 @@ type Config struct {
 	AdGuard   AdGuardConfig
 	DNS       DNSConfig
 	State     StateConfig
+	Runtime   RuntimeConfig
 	Logging   LoggingConfig
 	Filters   FilterConfig
 	Discovery DiscoveryConfig
@@ -49,6 +51,10 @@ type StateConfig struct {
 	File string
 }
 
+type RuntimeConfig struct {
+	DryRun bool
+}
+
 type LoggingConfig struct {
 	Level  string
 	Format string
@@ -74,6 +80,14 @@ func Load() (Config, error) {
 	proxmoxVerifyTLS, err := environmentBool(
 		"PROXMOX_VERIFY_TLS",
 		defaultProxmoxTLSMode,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
+	dryRun, err := environmentBool(
+		"DRY_RUN",
+		defaultDryRun,
 	)
 	if err != nil {
 		return Config{}, err
@@ -129,6 +143,9 @@ func Load() (Config, error) {
 				"STATE_FILE",
 				"./data/state.json",
 			),
+		},
+		Runtime: RuntimeConfig{
+			DryRun: dryRun,
 		},
 		Logging: LoggingConfig{
 			Level: environmentOrDefault(
