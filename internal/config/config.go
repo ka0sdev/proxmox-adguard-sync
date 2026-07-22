@@ -20,6 +20,7 @@ type Config struct {
 	Proxmox   ProxmoxConfig
 	AdGuard   AdGuardConfig
 	DNS       DNSConfig
+	State     StateConfig
 	Logging   LoggingConfig
 	Filters   FilterConfig
 	Discovery DiscoveryConfig
@@ -42,6 +43,10 @@ type AdGuardConfig struct {
 
 type DNSConfig struct {
 	Suffix string
+}
+
+type StateConfig struct {
+	File string
 }
 
 type LoggingConfig struct {
@@ -117,6 +122,12 @@ func Load() (Config, error) {
 			Suffix: environmentOrDefault(
 				"DNS_SUFFIX",
 				"internal",
+			),
+		},
+		State: StateConfig{
+			File: environmentStringOrDefault(
+				"STATE_FILE",
+				"./data/state.json",
 			),
 		},
 		Logging: LoggingConfig{
@@ -200,7 +211,8 @@ func Load() (Config, error) {
 			)
 		}
 
-		cfg.SyncInterval = time.Duration(seconds) * time.Second
+		cfg.SyncInterval =
+			time.Duration(seconds) * time.Second
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -214,37 +226,63 @@ func (c Config) Validate() error {
 	var missing []string
 
 	if c.Proxmox.BaseURL == "" {
-		missing = append(missing, "PROXMOX_BASE_URL")
+		missing = append(
+			missing,
+			"PROXMOX_BASE_URL",
+		)
 	}
 
 	if c.Proxmox.APITokenID == "" {
-		missing = append(missing, "PROXMOX_TOKEN_ID")
+		missing = append(
+			missing,
+			"PROXMOX_TOKEN_ID",
+		)
 	}
 
 	if c.Proxmox.APITokenSecret == "" {
-		missing = append(missing, "PROXMOX_TOKEN_SECRET")
+		missing = append(
+			missing,
+			"PROXMOX_TOKEN_SECRET",
+		)
 	}
 
 	if c.AdGuard.BaseURL == "" {
-		missing = append(missing, "ADGUARD_BASE_URL")
+		missing = append(
+			missing,
+			"ADGUARD_BASE_URL",
+		)
 	}
 
 	if c.AdGuard.Username == "" {
-		missing = append(missing, "ADGUARD_USERNAME")
+		missing = append(
+			missing,
+			"ADGUARD_USERNAME",
+		)
 	}
 
 	if c.AdGuard.Password == "" {
-		missing = append(missing, "ADGUARD_PASSWORD")
-	}
-
-	if strings.TrimSpace(c.DNS.Suffix) == "" {
-		return errors.New("DNS_SUFFIX must not be empty")
+		missing = append(
+			missing,
+			"ADGUARD_PASSWORD",
+		)
 	}
 
 	if len(missing) > 0 {
 		return fmt.Errorf(
 			"missing required environment variables: %s",
 			strings.Join(missing, ", "),
+		)
+	}
+
+	if strings.TrimSpace(c.DNS.Suffix) == "" {
+		return errors.New(
+			"DNS_SUFFIX must not be empty",
+		)
+	}
+
+	if strings.TrimSpace(c.State.File) == "" {
+		return errors.New(
+			"STATE_FILE must not be empty",
 		)
 	}
 
@@ -297,11 +335,16 @@ func (c Config) Validate() error {
 }
 
 func loadLogFormat() (string, error) {
-	if value := strings.TrimSpace(os.Getenv("LOG_FORMAT")); value != "" {
+	if value := strings.TrimSpace(
+		os.Getenv("LOG_FORMAT"),
+	); value != "" {
 		return strings.ToLower(value), nil
 	}
 
-	logJSON, err := environmentBool("LOG_JSON", false)
+	logJSON, err := environmentBool(
+		"LOG_JSON",
+		false,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -315,7 +358,9 @@ func loadLogFormat() (string, error) {
 
 func environmentFirst(names ...string) string {
 	for _, name := range names {
-		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		if value := strings.TrimSpace(
+			os.Getenv(name),
+		); value != "" {
 			return strings.TrimRight(value, "/")
 		}
 	}
@@ -323,8 +368,14 @@ func environmentFirst(names ...string) string {
 	return ""
 }
 
-func environmentOrDefault(name, defaultValue string) string {
-	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+func environmentOrDefault(
+	name string,
+	defaultValue string,
+) string {
+	value := strings.ToLower(
+		strings.TrimSpace(os.Getenv(name)),
+	)
+
 	if value == "" {
 		return defaultValue
 	}
@@ -332,7 +383,22 @@ func environmentOrDefault(name, defaultValue string) string {
 	return value
 }
 
-func environmentBool(name string, defaultValue bool) (bool, error) {
+func environmentStringOrDefault(
+	name string,
+	defaultValue string,
+) string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return defaultValue
+	}
+
+	return value
+}
+
+func environmentBool(
+	name string,
+	defaultValue bool,
+) (bool, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
 		return defaultValue, nil
@@ -340,13 +406,20 @@ func environmentBool(name string, defaultValue bool) (bool, error) {
 
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return false, fmt.Errorf("parse %s: %w", name, err)
+		return false, fmt.Errorf(
+			"parse %s: %w",
+			name,
+			err,
+		)
 	}
 
 	return parsed, nil
 }
 
-func environmentCSV(name string, defaultValue []string) []string {
+func environmentCSV(
+	name string,
+	defaultValue []string,
+) []string {
 	return environmentCSVFirst(
 		[]string{name},
 		defaultValue,
@@ -360,14 +433,20 @@ func environmentCSVFirst(
 	var value string
 
 	for _, name := range names {
-		value = strings.TrimSpace(os.Getenv(name))
+		value = strings.TrimSpace(
+			os.Getenv(name),
+		)
+
 		if value != "" {
 			break
 		}
 	}
 
 	if value == "" {
-		return append([]string(nil), defaultValue...)
+		return append(
+			[]string(nil),
+			defaultValue...,
+		)
 	}
 
 	parts := strings.Split(value, ",")
