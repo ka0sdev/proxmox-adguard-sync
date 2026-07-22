@@ -131,6 +131,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
       - name: Download build artifact
         uses: actions/download-artifact@v8
         with:
@@ -151,17 +157,23 @@ jobs:
           set -euo pipefail
 
           TAG="${GITHUB_REF_NAME}"
+          REPOSITORY="${GITHUB_REPOSITORY}"
 
-          if gh release view "${TAG}" >/dev/null 2>&1; then
+          if gh release view "${TAG}" \
+            --repo "${REPOSITORY}" \
+            >/dev/null 2>&1; then
+
             echo "Release ${TAG} already exists; replacing its assets."
 
             gh release upload \
               "${TAG}" \
               dist/*.tar.gz \
               dist/checksums.txt \
+              --repo "${REPOSITORY}" \
               --clobber
           else
             RELEASE_FLAGS=(
+              --repo "${REPOSITORY}"
               --verify-tag
               --generate-notes
             )
@@ -215,10 +227,12 @@ jobs:
           set -euo pipefail
 
           TAG="${GITHUB_REF_NAME}"
+          REPOSITORY="${GITHUB_REPOSITORY}"
           VALIDATED_AT="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           WORKFLOW_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
           gh release view "${TAG}" \
+            --repo "${REPOSITORY}" \
             --json body \
             --jq '.body // ""' \
             > existing-release-body.md
@@ -268,6 +282,7 @@ jobs:
           } > final-release-body.md
 
           gh release edit "${TAG}" \
+            --repo "${REPOSITORY}" \
             --notes-file final-release-body.md
 
       - name: Write workflow summary
