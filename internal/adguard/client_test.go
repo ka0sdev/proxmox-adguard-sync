@@ -3,6 +3,7 @@ package adguard
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -257,5 +258,237 @@ func TestNewClientRejectsInvalidOptions(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestAddRewrite(t *testing.T) {
+	server := httptest.NewServer(
+		http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			if request.Method != http.MethodPost {
+				t.Errorf(
+					"method = %q, expected POST",
+					request.Method,
+				)
+			}
+
+			if request.URL.Path != "/control/rewrite/add" {
+				t.Errorf(
+					"path = %q",
+					request.URL.Path,
+				)
+			}
+
+			var payload Rewrite
+
+			if err := json.NewDecoder(
+				request.Body,
+			).Decode(&payload); err != nil {
+				t.Fatalf(
+					"decode request: %v",
+					err,
+				)
+			}
+
+			if payload.Domain != "lxc-dns.internal" {
+				t.Errorf(
+					"Domain = %q",
+					payload.Domain,
+				)
+			}
+
+			if payload.Answer != "172.20.0.4" {
+				t.Errorf(
+					"Answer = %q",
+					payload.Answer,
+				)
+			}
+
+			writer.WriteHeader(http.StatusOK)
+		}),
+	)
+	defer server.Close()
+
+	client, err := NewClient(ClientOptions{
+		BaseURL:  server.URL,
+		Username: "admin",
+		Password: "secret",
+	})
+	if err != nil {
+		t.Fatalf(
+			"NewClient() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	err = client.AddRewrite(
+		context.Background(),
+		Rewrite{
+			Domain: "lxc-dns.internal",
+			Answer: "172.20.0.4",
+		},
+	)
+	if err != nil {
+		t.Fatalf(
+			"AddRewrite() returned an unexpected error: %v",
+			err,
+		)
+	}
+}
+
+func TestUpdateRewrite(t *testing.T) {
+	server := httptest.NewServer(
+		http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			if request.Method != http.MethodPut {
+				t.Errorf(
+					"method = %q, expected PUT",
+					request.Method,
+				)
+			}
+
+			if request.URL.Path !=
+				"/control/rewrite/update" {
+				t.Errorf(
+					"path = %q",
+					request.URL.Path,
+				)
+			}
+
+			var payload RewriteUpdate
+
+			if err := json.NewDecoder(
+				request.Body,
+			).Decode(&payload); err != nil {
+				t.Fatalf(
+					"decode request: %v",
+					err,
+				)
+			}
+
+			if payload.Target.Answer !=
+				"172.20.0.99" {
+				t.Errorf(
+					"Target.Answer = %q",
+					payload.Target.Answer,
+				)
+			}
+
+			if payload.Update.Answer !=
+				"172.20.0.4" {
+				t.Errorf(
+					"Update.Answer = %q",
+					payload.Update.Answer,
+				)
+			}
+
+			writer.WriteHeader(http.StatusOK)
+		}),
+	)
+	defer server.Close()
+
+	client, err := NewClient(ClientOptions{
+		BaseURL:  server.URL,
+		Username: "admin",
+		Password: "secret",
+	})
+	if err != nil {
+		t.Fatalf(
+			"NewClient() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	err = client.UpdateRewrite(
+		context.Background(),
+		Rewrite{
+			Domain: "lxc-dns.internal",
+			Answer: "172.20.0.99",
+		},
+		Rewrite{
+			Domain: "lxc-dns.internal",
+			Answer: "172.20.0.4",
+		},
+	)
+	if err != nil {
+		t.Fatalf(
+			"UpdateRewrite() returned an unexpected error: %v",
+			err,
+		)
+	}
+}
+
+func TestDeleteRewrite(t *testing.T) {
+	server := httptest.NewServer(
+		http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			if request.Method != http.MethodPost {
+				t.Errorf(
+					"method = %q, expected POST",
+					request.Method,
+				)
+			}
+
+			if request.URL.Path !=
+				"/control/rewrite/delete" {
+				t.Errorf(
+					"path = %q",
+					request.URL.Path,
+				)
+			}
+
+			var payload Rewrite
+
+			if err := json.NewDecoder(
+				request.Body,
+			).Decode(&payload); err != nil {
+				t.Fatalf(
+					"decode request: %v",
+					err,
+				)
+			}
+
+			if payload.Domain != "stale.internal" {
+				t.Errorf(
+					"Domain = %q",
+					payload.Domain,
+				)
+			}
+
+			writer.WriteHeader(http.StatusOK)
+		}),
+	)
+	defer server.Close()
+
+	client, err := NewClient(ClientOptions{
+		BaseURL:  server.URL,
+		Username: "admin",
+		Password: "secret",
+	})
+	if err != nil {
+		t.Fatalf(
+			"NewClient() returned an unexpected error: %v",
+			err,
+		)
+	}
+
+	err = client.DeleteRewrite(
+		context.Background(),
+		Rewrite{
+			Domain: "stale.internal",
+			Answer: "172.20.0.50",
+		},
+	)
+	if err != nil {
+		t.Fatalf(
+			"DeleteRewrite() returned an unexpected error: %v",
+			err,
+		)
 	}
 }

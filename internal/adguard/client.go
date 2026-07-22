@@ -1,6 +1,7 @@
 package adguard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,11 @@ type Rewrite struct {
 	Domain  string `json:"domain"`
 	Answer  string `json:"answer"`
 	Enabled *bool  `json:"enabled,omitempty"`
+}
+
+type RewriteUpdate struct {
+	Target Rewrite `json:"target"`
+	Update Rewrite `json:"update"`
 }
 
 type ClientOptions struct {
@@ -101,9 +107,11 @@ func (c *Client) ListRewrites(
 ) ([]Rewrite, error) {
 	var rewrites []Rewrite
 
-	if err := c.get(
+	if err := c.request(
 		ctx,
+		http.MethodGet,
 		"/control/rewrite/list",
+		nil,
 		&rewrites,
 	); err != nil {
 		return nil, fmt.Errorf(
@@ -115,18 +123,129 @@ func (c *Client) ListRewrites(
 	return rewrites, nil
 }
 
-func (c *Client) get(
+func (c *Client) AddRewrite(
 	ctx context.Context,
+	rewrite Rewrite,
+) error {
+	if err := validateRewrite(rewrite); err != nil {
+		return fmt.Errorf(
+			"validate rewrite to add: %w",
+			err,
+		)
+	}
+
+	if err := c.request(
+		ctx,
+		http.MethodPost,
+		"/control/rewrite/add",
+		rewrite,
+		nil,
+	); err != nil {
+		return fmt.Errorf(
+			"add AdGuard DNS rewrite %q: %w",
+			rewrite.Domain,
+			err,
+		)
+	}
+
+	return nil
+}
+
+func (c *Client) UpdateRewrite(
+	ctx context.Context,
+	current Rewrite,
+	desired Rewrite,
+) error {
+	if err := validateRewrite(current); err != nil {
+		return fmt.Errorf(
+			"validate current rewrite: %w",
+			err,
+		)
+	}
+
+	if err := validateRewrite(desired); err != nil {
+		return fmt.Errorf(
+			"validate desired rewrite: %w",
+			err,
+		)
+	}
+
+	payload := RewriteUpdate{
+		Target: current,
+		Update: desired,
+	}
+
+	if err := c.request(
+		ctx,
+		http.MethodPut,
+		"/control/rewrite/update",
+		payload,
+		nil,
+	); err != nil {
+		return fmt.Errorf(
+			"update AdGuard DNS rewrite %q: %w",
+			current.Domain,
+			err,
+		)
+	}
+
+	return nil
+}
+
+func (c *Client) DeleteRewrite(
+	ctx context.Context,
+	rewrite Rewrite,
+) error {
+	if err := validateRewrite(rewrite); err != nil {
+		return fmt.Errorf(
+			"validate rewrite to delete: %w",
+			err,
+		)
+	}
+
+	if err := c.request(
+		ctx,
+		http.MethodPost,
+		"/control/rewrite/delete",
+		rewrite,
+		nil,
+	); err != nil {
+		return fmt.Errorf(
+			"delete AdGuard DNS rewrite %q: %w",
+			rewrite.Domain,
+			err,
+		)
+	}
+
+	return nil
+}
+
+func (c *Client) request(
+	ctx context.Context,
+	method string,
 	path string,
+	payload any,
 	destination any,
 ) error {
-	requestURL := c.resolvePath(path)
+	var body io.Reader
+
+	if payload != nil {
+		content, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf(
+				"encode AdGuard request: %w",
+				err,
+			)
+		}
+
+		body = bytes.NewReader(content)
+	}
 
 	request, err := http.NewRequestWithContext(
 		ctx,
-		http.MethodGet,
-		requestURL,
-		nil,
+		method,
+		c.resolvePath(path),
+		body,
 	)
 	if err != nil {
 		return fmt.Errorf(
@@ -137,6 +256,13 @@ func (c *Client) get(
 
 	request.Header.Set("Accept", "application/json")
 	request.SetBasicAuth(c.username, c.password)
+
+	if payload != nil {
+		request.Header.Set(
+			"Content-Type",
+			"application/json",
+		)
+	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -149,15 +275,20 @@ func (c *Client) get(
 
 	if response.StatusCode < 200 ||
 		response.StatusCode >= 300 {
-		body, _ := io.ReadAll(
+		responseBody, _ := io.ReadAll(
 			io.LimitReader(response.Body, 4096),
 		)
 
 		return fmt.Errorf(
 			"AdGuard returned HTTP %d: %s",
 			response.StatusCode,
-			strings.TrimSpace(string(body)),
+			strings.TrimSpace(string(responseBody)),
 		)
+	}
+
+	if destination == nil {
+		_, _ = io.Copy(io.Discard, response.Body)
+		return nil
 	}
 
 	if err := json.NewDecoder(response.Body).Decode(
@@ -175,11 +306,21 @@ func (c *Client) get(
 func (c *Client) resolvePath(path string) string {
 	resolved := *c.baseURL
 
-	basePath := strings.TrimRight(resolved.Path, "/")
-	requestPath := "/" + strings.TrimLeft(path, "/")
+	basePath := strings.TrimRight(
+		resolved.Path,
+		"/",
+	)
+
+	requestPath := "/" + strings.TrimLeft(
+		path,
+		"/",
+	)
 
 	if strings.HasSuffix(basePath, "/control") &&
-		strings.HasPrefix(requestPath, "/control/") {
+		strings.HasPrefix(
+			requestPath,
+			"/control/",
+		) {
 		requestPath = strings.TrimPrefix(
 			requestPath,
 			"/control",
@@ -191,4 +332,20 @@ func (c *Client) resolvePath(path string) string {
 	resolved.Fragment = ""
 
 	return resolved.String()
+}
+
+func validateRewrite(rewrite Rewrite) error {
+	if strings.TrimSpace(rewrite.Domain) == "" {
+		return errors.New(
+			"rewrite domain must not be empty",
+		)
+	}
+
+	if strings.TrimSpace(rewrite.Answer) == "" {
+		return errors.New(
+			"rewrite answer must not be empty",
+		)
+	}
+
+	return nil
 }
