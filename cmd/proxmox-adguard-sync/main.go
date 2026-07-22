@@ -13,6 +13,7 @@ import (
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/proxmox"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/reconcile"
 	"github.com/ka0sdev/proxmox-adguard-sync/internal/selection"
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/state"
 )
 
 const applicationName = "proxmox-adguard-sync"
@@ -55,7 +56,10 @@ func run() error {
 
 	logger.Info(
 		"Starting application",
-		slog.String("application", applicationName),
+		slog.String(
+			"application",
+			applicationName,
+		),
 		slog.String(
 			"sync_interval",
 			cfg.SyncInterval.String(),
@@ -80,7 +84,20 @@ func run() error {
 			"adguard_url",
 			cfg.AdGuard.BaseURL,
 		),
+		slog.String(
+			"dns_suffix",
+			cfg.DNS.Suffix,
+		),
+		slog.String(
+			"state_file",
+			cfg.State.File,
+		),
 	)
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	defer cancel()
 
 	proxmoxClient, err := proxmox.NewClient(
 		proxmox.ClientOptions{
@@ -97,9 +114,6 @@ func run() error {
 		)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	version, err := proxmoxClient.Version(ctx)
 	if err != nil {
 		return fmt.Errorf(
@@ -110,8 +124,14 @@ func run() error {
 
 	logger.Info(
 		"Connected to Proxmox",
-		slog.String("version", version.Version),
-		slog.String("release", version.Release),
+		slog.String(
+			"version",
+			version.Version,
+		),
+		slog.String(
+			"release",
+			version.Release,
+		),
 		slog.String(
 			"repository_id",
 			version.RepoID,
@@ -128,7 +148,8 @@ func run() error {
 
 	selector := selection.New(cfg.Filters)
 
-	selectedGuests, excludedGuests := selector.Filter(guests)
+	selectedGuests, excludedGuests :=
+		selector.Filter(guests)
 
 	logGuestSelection(
 		logger,
@@ -145,10 +166,11 @@ func run() error {
 		selectedGuests,
 	)
 
-	desiredRewrites, err := reconcile.BuildDesiredRewrites(
-		resolvedGuests,
-		cfg.DNS.Suffix,
-	)
+	desiredRewrites, err :=
+		reconcile.BuildDesiredRewrites(
+			resolvedGuests,
+			cfg.DNS.Suffix,
+		)
 	if err != nil {
 		return fmt.Errorf(
 			"build desired DNS rewrites: %w",
@@ -170,7 +192,8 @@ func run() error {
 		)
 	}
 
-	currentRewrites, err := adguardClient.ListRewrites(ctx)
+	currentRewrites, err :=
+		adguardClient.ListRewrites(ctx)
 	if err != nil {
 		return fmt.Errorf(
 			"retrieve AdGuard rewrites: %w",
@@ -178,12 +201,46 @@ func run() error {
 		)
 	}
 
+	stateStore, err := state.NewStore(
+		cfg.State.File,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"initialize state store: %w",
+			err,
+		)
+	}
+
+	stateFile, err := stateStore.Load()
+	if err != nil {
+		return fmt.Errorf(
+			"load ownership state: %w",
+			err,
+		)
+	}
+
+	logger.Info(
+		"Ownership state loaded",
+		slog.String(
+			"path",
+			stateStore.Path(),
+		),
+		slog.Int(
+			"managed",
+			len(stateFile.Records),
+		),
+	)
+
 	plan := reconcile.BuildPlan(
 		desiredRewrites,
 		currentRewrites,
+		stateFile.ManagedRecords(),
 	)
 
-	logReconciliationPlan(logger, plan)
+	logReconciliationPlan(
+		logger,
+		plan,
+	)
 
 	return nil
 }
@@ -197,14 +254,26 @@ func logGuestSelection(
 	for _, guest := range selectedGuests {
 		logger.Debug(
 			"Selected guest",
-			slog.Int("vmid", guest.VMID),
-			slog.String("name", guest.Name),
+			slog.Int(
+				"vmid",
+				guest.VMID,
+			),
+			slog.String(
+				"name",
+				guest.Name,
+			),
 			slog.String(
 				"type",
 				string(guest.Type),
 			),
-			slog.String("status", guest.Status),
-			slog.Any("tags", guest.ParsedTags()),
+			slog.String(
+				"status",
+				guest.Status,
+			),
+			slog.Any(
+				"tags",
+				guest.ParsedTags(),
+			),
 		)
 	}
 
@@ -258,7 +327,9 @@ func resolveGuests(
 	discoveryConfig config.DiscoveryConfig,
 	guests []proxmox.Guest,
 ) []discovery.ResolvedGuest {
-	resolver := discovery.NewResolver(discoveryConfig)
+	resolver := discovery.NewResolver(
+		discoveryConfig,
+	)
 
 	resolved := make(
 		[]discovery.ResolvedGuest,
@@ -279,8 +350,14 @@ func resolveGuests(
 
 			logger.Warn(
 				"Guest configuration retrieval failed",
-				slog.Int("vmid", guest.VMID),
-				slog.String("name", guest.Name),
+				slog.Int(
+					"vmid",
+					guest.VMID,
+				),
+				slog.String(
+					"name",
+					guest.Name,
+				),
 				slog.String(
 					"type",
 					string(guest.Type),
@@ -311,8 +388,14 @@ func resolveGuests(
 			if err != nil {
 				logger.Debug(
 					"QEMU Guest Agent unavailable",
-					slog.Int("vmid", guest.VMID),
-					slog.String("name", guest.Name),
+					slog.Int(
+						"vmid",
+						guest.VMID,
+					),
+					slog.String(
+						"name",
+						guest.Name,
+					),
 					slog.String(
 						"error",
 						err.Error(),
@@ -323,18 +406,25 @@ func resolveGuests(
 			}
 		}
 
-		result, err := resolver.ResolveWithQEMUAgent(
-			guest,
-			guestConfig,
-			agentInterfaces,
-		)
+		result, err :=
+			resolver.ResolveWithQEMUAgent(
+				guest,
+				guestConfig,
+				agentInterfaces,
+			)
 		if err != nil {
 			failed++
 
 			logger.Warn(
 				"Guest resolution failed",
-				slog.Int("vmid", guest.VMID),
-				slog.String("name", guest.Name),
+				slog.Int(
+					"vmid",
+					guest.VMID,
+				),
+				slog.String(
+					"name",
+					guest.Name,
+				),
 				slog.String(
 					"type",
 					string(guest.Type),
@@ -348,16 +438,31 @@ func resolveGuests(
 			continue
 		}
 
-		resolved = append(resolved, result)
+		resolved = append(
+			resolved,
+			result,
+		)
 
-		logResolvedGuest(logger, result)
+		logResolvedGuest(
+			logger,
+			result,
+		)
 	}
 
 	logger.Info(
 		"Guest resolution complete",
-		slog.Int("selected", len(guests)),
-		slog.Int("resolved", len(resolved)),
-		slog.Int("failed", failed),
+		slog.Int(
+			"selected",
+			len(guests),
+		),
+		slog.Int(
+			"resolved",
+			len(resolved),
+		),
+		slog.Int(
+			"failed",
+			failed,
+		),
 	)
 
 	return resolved
@@ -454,8 +559,14 @@ func logReconciliationPlan(
 	for _, rewrite := range plan.Add {
 		logger.Info(
 			"DNS rewrite would be added",
-			slog.String("domain", rewrite.Domain),
-			slog.String("answer", rewrite.Answer),
+			slog.String(
+				"domain",
+				rewrite.Domain,
+			),
+			slog.String(
+				"answer",
+				rewrite.Answer,
+			),
 		)
 	}
 
@@ -477,26 +588,62 @@ func logReconciliationPlan(
 		)
 	}
 
+	for _, rewrite := range plan.Delete {
+		logger.Info(
+			"Managed DNS rewrite would be deleted",
+			slog.String(
+				"domain",
+				rewrite.Domain,
+			),
+			slog.String(
+				"answer",
+				rewrite.Answer,
+			),
+		)
+	}
+
 	for _, rewrite := range plan.Unchanged {
 		logger.Debug(
 			"DNS rewrite already current",
-			slog.String("domain", rewrite.Domain),
-			slog.String("answer", rewrite.Answer),
+			slog.String(
+				"domain",
+				rewrite.Domain,
+			),
+			slog.String(
+				"answer",
+				rewrite.Answer,
+			),
 		)
 	}
 
 	for _, rewrite := range plan.Unmanaged {
 		logger.Debug(
 			"Leaving unrelated DNS rewrite unchanged",
-			slog.String("domain", rewrite.Domain),
-			slog.String("answer", rewrite.Answer),
+			slog.String(
+				"domain",
+				rewrite.Domain,
+			),
+			slog.String(
+				"answer",
+				rewrite.Answer,
+			),
 		)
 	}
 
 	logger.Info(
 		"DNS reconciliation plan complete",
-		slog.Int("add", len(plan.Add)),
-		slog.Int("update", len(plan.Update)),
+		slog.Int(
+			"add",
+			len(plan.Add),
+		),
+		slog.Int(
+			"update",
+			len(plan.Update),
+		),
+		slog.Int(
+			"delete",
+			len(plan.Delete),
+		),
 		slog.Int(
 			"unchanged",
 			len(plan.Unchanged),
@@ -505,6 +652,9 @@ func logReconciliationPlan(
 			"unmanaged",
 			len(plan.Unmanaged),
 		),
-		slog.Bool("dry_run", true),
+		slog.Bool(
+			"dry_run",
+			true,
+		),
 	)
 }
