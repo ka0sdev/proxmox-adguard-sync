@@ -1,11 +1,6 @@
-> [!IMPORTANT]
-> This branch contains the original JavaScript implementation of Proxmox AdGuard Sync.
->
-> The project is currently being rewritten in Go to provide a smaller deployment footprint, stronger type safety, improved testability, and a more maintainable long-term architecture.
->
-> The JavaScript version remains available as the stable legacy implementation while the Go rewrite is developed and validated. Development of the new implementation is taking place in the [`go-rewrite`](../../tree/go-rewrite) branch.
->
-> Existing users can continue using this version, but new features and future development will gradually move to the Go implementation.
+> [!WARNING]
+> This branch contains the legacy JavaScript implementation.  
+> The actively developed Go version is available on the [`main`](https://github.com/ka0sdev/proxmox-adguard-sync) branch.
 
 # Proxmox → AdGuard Home DNS Sync
 
