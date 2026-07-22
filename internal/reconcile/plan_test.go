@@ -50,15 +50,33 @@ func TestBuildDesiredRewrites(t *testing.T) {
 
 	if rewrites[0].Domain != "lxc-dns.internal" {
 		t.Errorf(
-			"rewrites[0].Domain = %q",
+			"rewrites[0].Domain = %q, expected %q",
 			rewrites[0].Domain,
+			"lxc-dns.internal",
+		)
+	}
+
+	if rewrites[0].Answer != "172.20.0.4" {
+		t.Errorf(
+			"rewrites[0].Answer = %q, expected %q",
+			rewrites[0].Answer,
+			"172.20.0.4",
 		)
 	}
 
 	if rewrites[1].Domain != "proxy-01.internal" {
 		t.Errorf(
-			"rewrites[1].Domain = %q",
+			"rewrites[1].Domain = %q, expected %q",
 			rewrites[1].Domain,
+			"proxy-01.internal",
+		)
+	}
+
+	if rewrites[1].Answer != "172.20.0.8" {
+		t.Errorf(
+			"rewrites[1].Answer = %q, expected %q",
+			rewrites[1].Answer,
+			"172.20.0.8",
 		)
 	}
 }
@@ -68,12 +86,16 @@ func TestBuildDesiredRewritesRejectsDuplicates(
 ) {
 	guests := []discovery.ResolvedGuest{
 		{
-			Guest:    proxmox.Guest{VMID: 201},
+			Guest: proxmox.Guest{
+				VMID: 201,
+			},
 			Hostname: "duplicate",
 			Address:  netip.MustParseAddr("172.20.0.3"),
 		},
 		{
-			Guest:    proxmox.Guest{VMID: 202},
+			Guest: proxmox.Guest{
+				VMID: 202,
+			},
 			Hostname: "duplicate",
 			Address:  netip.MustParseAddr("172.20.0.4"),
 		},
@@ -95,6 +117,97 @@ func TestBuildDesiredRewritesRejectsDuplicates(
 	) {
 		t.Errorf(
 			"error = %q, expected duplicate-domain error",
+			err,
+		)
+	}
+}
+
+func TestBuildDesiredRewritesRejectsEmptySuffix(
+	t *testing.T,
+) {
+	_, err := BuildDesiredRewrites(
+		nil,
+		"...",
+	)
+	if err == nil {
+		t.Fatal(
+			"BuildDesiredRewrites() returned nil error",
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"DNS suffix resolves to an empty value",
+	) {
+		t.Errorf(
+			"error = %q, expected empty-suffix error",
+			err,
+		)
+	}
+}
+
+func TestBuildDesiredRewritesRejectsEmptyHostname(
+	t *testing.T,
+) {
+	guests := []discovery.ResolvedGuest{
+		{
+			Guest: proxmox.Guest{
+				VMID: 202,
+			},
+			Hostname: "!!!",
+			Address:  netip.MustParseAddr("172.20.0.4"),
+		},
+	}
+
+	_, err := BuildDesiredRewrites(
+		guests,
+		"internal",
+	)
+	if err == nil {
+		t.Fatal(
+			"BuildDesiredRewrites() returned nil error",
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"VMID 202 has an empty DNS hostname",
+	) {
+		t.Errorf(
+			"error = %q, expected empty-hostname error",
+			err,
+		)
+	}
+}
+
+func TestBuildDesiredRewritesRejectsInvalidAddress(
+	t *testing.T,
+) {
+	guests := []discovery.ResolvedGuest{
+		{
+			Guest: proxmox.Guest{
+				VMID: 202,
+			},
+			Hostname: "lxc-dns",
+		},
+	}
+
+	_, err := BuildDesiredRewrites(
+		guests,
+		"internal",
+	)
+	if err == nil {
+		t.Fatal(
+			"BuildDesiredRewrites() returned nil error",
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"VMID 202 has invalid IPv4 address",
+	) {
+		t.Errorf(
+			"error = %q, expected invalid-address error",
 			err,
 		)
 	}
@@ -126,17 +239,37 @@ func TestBuildPlan(t *testing.T) {
 			Answer: "172.20.0.30",
 		},
 		{
+			Domain: "stale.internal",
+			Answer: "172.20.0.50",
+		},
+		{
 			Domain: "manual.internal",
 			Answer: "172.20.0.40",
 		},
 	}
 
-	plan := BuildPlan(desired, current)
+	managed := map[string]string{
+		"stale.internal": "172.20.0.50",
+	}
+
+	plan := BuildPlan(
+		desired,
+		current,
+		managed,
+	)
 
 	if len(plan.Add) != 1 {
 		t.Errorf(
 			"len(Add) = %d, expected 1",
 			len(plan.Add),
+		)
+	}
+
+	if plan.Add[0].Domain != "new.internal" {
+		t.Errorf(
+			"Add[0].Domain = %q, expected %q",
+			plan.Add[0].Domain,
+			"new.internal",
 		)
 	}
 
@@ -147,10 +280,51 @@ func TestBuildPlan(t *testing.T) {
 		)
 	}
 
+	if plan.Update[0].Current.Answer !=
+		"172.20.0.99" {
+		t.Errorf(
+			"Current.Answer = %q, expected %q",
+			plan.Update[0].Current.Answer,
+			"172.20.0.99",
+		)
+	}
+
+	if plan.Update[0].Desired.Answer !=
+		"172.20.0.20" {
+		t.Errorf(
+			"Desired.Answer = %q, expected %q",
+			plan.Update[0].Desired.Answer,
+			"172.20.0.20",
+		)
+	}
+
+	if len(plan.Delete) != 1 {
+		t.Errorf(
+			"len(Delete) = %d, expected 1",
+			len(plan.Delete),
+		)
+	}
+
+	if plan.Delete[0].Domain != "stale.internal" {
+		t.Errorf(
+			"Delete[0].Domain = %q, expected %q",
+			plan.Delete[0].Domain,
+			"stale.internal",
+		)
+	}
+
 	if len(plan.Unchanged) != 1 {
 		t.Errorf(
 			"len(Unchanged) = %d, expected 1",
 			len(plan.Unchanged),
+		)
+	}
+
+	if plan.Unchanged[0].Domain != "same.internal" {
+		t.Errorf(
+			"Unchanged[0].Domain = %q, expected %q",
+			plan.Unchanged[0].Domain,
+			"same.internal",
 		)
 	}
 
@@ -161,27 +335,105 @@ func TestBuildPlan(t *testing.T) {
 		)
 	}
 
-	if plan.Update[0].Current.Answer !=
-		"172.20.0.99" {
-		t.Errorf(
-			"Current.Answer = %q",
-			plan.Update[0].Current.Answer,
-		)
-	}
-
-	if plan.Update[0].Desired.Answer !=
-		"172.20.0.20" {
-		t.Errorf(
-			"Desired.Answer = %q",
-			plan.Update[0].Desired.Answer,
-		)
-	}
-
 	if plan.Unmanaged[0].Domain !=
 		"manual.internal" {
 		t.Errorf(
-			"Unmanaged[0].Domain = %q",
+			"Unmanaged[0].Domain = %q, expected %q",
 			plan.Unmanaged[0].Domain,
+			"manual.internal",
+		)
+	}
+}
+
+func TestBuildPlanDoesNotDeleteManagedRecordAlreadyAbsent(
+	t *testing.T,
+) {
+	plan := BuildPlan(
+		nil,
+		nil,
+		map[string]string{
+			"missing.internal": "172.20.0.50",
+		},
+	)
+
+	if len(plan.Delete) != 0 {
+		t.Errorf(
+			"len(Delete) = %d, expected 0",
+			len(plan.Delete),
+		)
+	}
+}
+
+func TestBuildPlanTreatsExistingDesiredRecordAsManagedNow(
+	t *testing.T,
+) {
+	desired := []adguard.Rewrite{
+		{
+			Domain: "service.internal",
+			Answer: "172.20.0.10",
+		},
+	}
+
+	current := []adguard.Rewrite{
+		{
+			Domain: "service.internal",
+			Answer: "172.20.0.10",
+		},
+	}
+
+	plan := BuildPlan(
+		desired,
+		current,
+		map[string]string{},
+	)
+
+	if len(plan.Unchanged) != 1 {
+		t.Errorf(
+			"len(Unchanged) = %d, expected 1",
+			len(plan.Unchanged),
+		)
+	}
+
+	if len(plan.Unmanaged) != 0 {
+		t.Errorf(
+			"len(Unmanaged) = %d, expected 0",
+			len(plan.Unmanaged),
+		)
+	}
+}
+
+func TestBuildPlanNormalizesDomains(t *testing.T) {
+	desired := []adguard.Rewrite{
+		{
+			Domain: "SERVICE.INTERNAL.",
+			Answer: "172.20.0.10",
+		},
+	}
+
+	current := []adguard.Rewrite{
+		{
+			Domain: "service.internal",
+			Answer: "172.20.0.10",
+		},
+	}
+
+	plan := BuildPlan(
+		desired,
+		current,
+		nil,
+	)
+
+	if len(plan.Unchanged) != 1 {
+		t.Errorf(
+			"len(Unchanged) = %d, expected 1",
+			len(plan.Unchanged),
+		)
+	}
+
+	if len(plan.Add) != 0 {
+		t.Errorf(
+			"len(Add) = %d, expected 0",
+			len(plan.Add),
 		)
 	}
 }

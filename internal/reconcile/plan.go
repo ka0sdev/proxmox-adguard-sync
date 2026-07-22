@@ -18,6 +18,7 @@ type Change struct {
 type Plan struct {
 	Add       []adguard.Rewrite
 	Update    []Change
+	Delete    []adguard.Rewrite
 	Unchanged []adguard.Rewrite
 	Unmanaged []adguard.Rewrite
 }
@@ -78,13 +79,7 @@ func BuildDesiredRewrites(
 		)
 	}
 
-	sort.Slice(
-		rewrites,
-		func(first, second int) bool {
-			return rewrites[first].Domain <
-				rewrites[second].Domain
-		},
-	)
+	sortRewrites(rewrites)
 
 	return rewrites, nil
 }
@@ -92,39 +87,14 @@ func BuildDesiredRewrites(
 func BuildPlan(
 	desired []adguard.Rewrite,
 	current []adguard.Rewrite,
+	managed map[string]string,
 ) Plan {
-	currentByDomain := make(
-		map[string]adguard.Rewrite,
-		len(current),
-	)
-
-	desiredDomains := make(
-		map[string]struct{},
-		len(desired),
-	)
-
-	for _, rewrite := range current {
-		domain := normalizeDomain(rewrite.Domain)
-
-		if domain == "" {
-			continue
-		}
-
-		rewrite.Domain = domain
-
-		if _, exists := currentByDomain[domain]; !exists {
-			currentByDomain[domain] = rewrite
-		}
-	}
+	currentByDomain := indexRewrites(current)
+	desiredByDomain := indexRewrites(desired)
 
 	plan := Plan{}
 
-	for _, wanted := range desired {
-		wanted.Domain = normalizeDomain(wanted.Domain)
-		wanted.Answer = strings.TrimSpace(wanted.Answer)
-
-		desiredDomains[wanted.Domain] = struct{}{}
-
+	for _, wanted := range desiredByDomain {
 		existing, exists := currentByDomain[wanted.Domain]
 		if !exists {
 			plan.Add = append(plan.Add, wanted)
@@ -132,12 +102,11 @@ func BuildPlan(
 		}
 
 		if strings.TrimSpace(existing.Answer) ==
-			wanted.Answer {
+			strings.TrimSpace(wanted.Answer) {
 			plan.Unchanged = append(
 				plan.Unchanged,
 				wanted,
 			)
-
 			continue
 		}
 
@@ -150,22 +119,27 @@ func BuildPlan(
 		)
 	}
 
-	for _, rewrite := range current {
-		domain := normalizeDomain(rewrite.Domain)
-
-		if _, managedNow := desiredDomains[domain]; managedNow {
+	for domain, existing := range currentByDomain {
+		if _, desiredNow := desiredByDomain[domain]; desiredNow {
 			continue
 		}
 
-		rewrite.Domain = domain
+		if _, owned := managed[domain]; owned {
+			plan.Delete = append(
+				plan.Delete,
+				existing,
+			)
+			continue
+		}
 
 		plan.Unmanaged = append(
 			plan.Unmanaged,
-			rewrite,
+			existing,
 		)
 	}
 
 	sortRewrites(plan.Add)
+	sortRewrites(plan.Delete)
 	sortRewrites(plan.Unchanged)
 	sortRewrites(plan.Unmanaged)
 
@@ -178,6 +152,31 @@ func BuildPlan(
 	)
 
 	return plan
+}
+
+func indexRewrites(
+	rewrites []adguard.Rewrite,
+) map[string]adguard.Rewrite {
+	indexed := make(
+		map[string]adguard.Rewrite,
+		len(rewrites),
+	)
+
+	for _, rewrite := range rewrites {
+		domain := normalizeDomain(rewrite.Domain)
+		if domain == "" {
+			continue
+		}
+
+		rewrite.Domain = domain
+		rewrite.Answer = strings.TrimSpace(rewrite.Answer)
+
+		if _, exists := indexed[domain]; !exists {
+			indexed[domain] = rewrite
+		}
+	}
+
+	return indexed
 }
 
 func normalizeDNSSuffix(value string) string {
@@ -202,7 +201,6 @@ func normalizeDNSLabel(value string) string {
 	value = strings.ReplaceAll(value, "_", "-")
 
 	var builder strings.Builder
-
 	previousHyphen := false
 
 	for _, character := range value {
