@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,6 +32,10 @@ type application struct {
 }
 
 func main() {
+	if handleCommandLine(os.Args[1:], os.Stdout) {
+		return
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(
 			os.Stderr,
@@ -40,6 +45,24 @@ func main() {
 		)
 
 		os.Exit(1)
+	}
+}
+
+func handleCommandLine(
+	arguments []string,
+	writer io.Writer,
+) bool {
+	if len(arguments) != 1 {
+		return false
+	}
+
+	switch arguments[0] {
+	case "--version", "-version":
+		printVersion(writer)
+		return true
+
+	default:
+		return false
 	}
 }
 
