@@ -1,0 +1,143 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - go-rewrite
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          UNFORMATTED="$(gofmt -l .)"
+
+          if [[ -n "${UNFORMATTED}" ]]; then
+            echo "The following files require gofmt:"
+            echo "${UNFORMATTED}"
+            exit 1
+          fi
+
+      - name: Run static analysis
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build release packages
+        id: packages
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="development-${GITHUB_SHA:0:7}"
+          fi
+
+          COMMIT="${GITHUB_SHA}"
+          BUILD_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          echo "Building version: ${VERSION}"
+          echo "Commit: ${COMMIT}"
+          echo "Build timestamp: ${BUILD_AT}"
+
+          mkdir -p dist
+
+          for ARCH in amd64 arm64; do
+            PACKAGE="proxmox-adguard-sync_${VERSION}_linux_${ARCH}"
+            PACKAGE_DIR="dist/${PACKAGE}"
+
+            mkdir -p "${PACKAGE_DIR}"
+
+            GOOS=linux GOARCH="${ARCH}" go build \
+              -trimpath \
+              -ldflags="\
+          -s -w \
+          -X main.version=${VERSION} \
+          -X main.commit=${COMMIT} \
+          -X main.buildAt=${BUILD_AT}" \
+              -o "${PACKAGE_DIR}/proxmox-adguard-sync" \
+              ./cmd/proxmox-adguard-sync
+
+            cp README.md "${PACKAGE_DIR}/"
+            cp LICENSE "${PACKAGE_DIR}/"
+            cp .env.example "${PACKAGE_DIR}/"
+
+            tar \
+              -C dist \
+              -czf "dist/${PACKAGE}.tar.gz" \
+              "${PACKAGE}"
+
+            rm -rf "${PACKAGE_DIR}"
+          done
+
+          (
+            cd dist
+            sha256sum ./*.tar.gz > checksums.txt
+          )
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+          echo
+          echo "Generated packages:"
+          ls -lh dist
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: proxmox-adguard-sync-${{ steps.packages.outputs.version }}
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_FLAGS=(
+            --verify-tag
+            --generate-notes
+          )
+
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            RELEASE_FLAGS+=(
+              --prerelease
+              --latest=false
+            )
+          fi
+
+          gh release create \
+            "${GITHUB_REF_NAME}" \
+            dist/*.tar.gz \
+            dist/checksums.txt \
+            "${RELEASE_FLAGS[@]}"
