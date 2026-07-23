@@ -12,6 +12,12 @@ A lightweight Go service that discovers Proxmox VE guests and synchronizes their
 
 The service supports both QEMU/KVM virtual machines and LXC containers, configurable discovery strategies, filtering, safe ownership tracking, dry-run operation, and continuous reconciliation.
 
+## Roadmap
+
+The Go implementation is under active development. Planned features, release milestones, and production-readiness work are tracked in [`ROADMAP.md`](ROADMAP.md).
+
+The roadmap is directional and may change as the project is tested against additional Proxmox VE and AdGuard Home environments.
+
 
 ## Features
 
