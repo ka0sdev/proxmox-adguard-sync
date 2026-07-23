@@ -1,18 +1,17 @@
+# Proxmox → AdGuard Home DNS Sync
+
 > [!WARNING]
-> This Go implementation is still under active development and is currently considered pre-release software. It has not yet completed production validation and should not be used in production environments.
+> The Go implementation is under active development and is currently considered pre-release software. It has not yet completed production validation and should not be used in production environments.
 >
-> Use `DRY_RUN=true` while evaluating the project, review all planned DNS changes carefully, and maintain an independent backup of your AdGuard Home configuration and ownership state.
+> Keep `DRY_RUN=true` while evaluating the project, review every planned DNS change carefully, and maintain independent backups of your AdGuard Home configuration and ownership state.
 
 > [!NOTE]
-> The original JavaScript implementation is preserved on the [`legacy-javascript`](https://github.com/ka0sdev/proxmox-adguard-sync/tree/legacy-javascript) branch.
-
-# Proxmox → AdGuard Home DNS Sync
+> `main` contains the current Go implementation. The original JavaScript implementation is preserved on the [`legacy-javascript`](https://github.com/ka0sdev/proxmox-adguard-sync/tree/legacy-javascript) branch.
 
 A lightweight Go service that discovers Proxmox VE guests and synchronizes their IPv4 addresses into AdGuard Home DNS rewrites.
 
 The service supports both QEMU/KVM virtual machines and LXC containers, configurable discovery strategies, filtering, safe ownership tracking, dry-run operation, and continuous reconciliation.
 
-> This branch contains the Go rewrite of Proxmox AdGuard Sync. The original JavaScript implementation remains available on the `master` branch while the Go version is developed and validated.
 
 ## Features
 
@@ -105,13 +104,10 @@ When dry-run mode is enabled, the application retrieves data and builds the comp
 
 ## Installation
 
-### Clone the Go branch
+### Clone the repository
 
 ```bash
-git clone \
-  --branch go-rewrite \
-  --single-branch \
-  https://github.com/ka0sdev/proxmox-adguard-sync.git
+git clone https://github.com/ka0sdev/proxmox-adguard-sync.git
 
 cd proxmox-adguard-sync
 ```
@@ -637,14 +633,14 @@ State files are written with restrictive permissions.
 * LXC DHCP addresses cannot be discovered directly from static Proxmox configuration
 * Dynamic QEMU discovery depends on QEMU Guest Agent
 * AdGuard Persistent Clients are not currently managed
-* Docker packaging and native service definitions are not yet included in the Go branch
+* Docker packaging and native service definitions are not yet included
 * Multiple Proxmox clusters are not currently supported
 
-## JavaScript version
+## Legacy JavaScript version
 
-The original Node.js implementation remains available on the `master` branch.
+The original Node.js implementation is preserved on the [`legacy-javascript`](https://github.com/ka0sdev/proxmox-adguard-sync/tree/legacy-javascript) branch for existing users and historical reference.
 
-The Go rewrite is being developed on the `go-rewrite` branch and is intended to replace the JavaScript implementation after deployment packaging and final validation are complete.
+The Go implementation on `main` is now the primary version of Proxmox AdGuard Sync. New development and releases target the Go implementation.
 
 ## License
 
