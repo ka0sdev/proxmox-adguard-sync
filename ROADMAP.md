@@ -54,6 +54,11 @@ The primary focus is validating synchronization safety, improving installation a
 - [ ] Add a guided native installation process
 - [ ] Add a minimal production container image
 - [ ] Document Docker Compose deployment
+- [ ] Add Windows AMD64 release builds
+- [ ] Add Windows-specific configuration documentation
+- [ ] Validate state-file handling on Windows
+- [ ] Add Windows release asset validation
+- [ ] Evaluate Windows Service support
 
 ### Reliability and safety
 
