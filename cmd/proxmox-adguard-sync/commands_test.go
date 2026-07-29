@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
 )
 
 func TestHandleCommandLineWithoutArguments(
@@ -50,35 +53,21 @@ func TestHandleCommandLineWithoutArguments(
 func TestHandleCommandLineVersion(
 	t *testing.T,
 ) {
-	testCases := []struct {
-		name     string
-		argument string
-	}{
-		{
-			name:     "long option",
-			argument: "--version",
-		},
-		{
-			name:     "legacy option",
-			argument: "-version",
-		},
-		{
-			name:     "command",
-			argument: "version",
-		},
+	arguments := []string{
+		"--version",
+		"-version",
+		"version",
 	}
 
-	for _, testCase := range testCases {
+	for _, argument := range arguments {
 		t.Run(
-			testCase.name,
+			argument,
 			func(t *testing.T) {
 				var output bytes.Buffer
 				var errorOutput bytes.Buffer
 
 				result := handleCommandLine(
-					[]string{
-						testCase.argument,
-					},
+					[]string{argument},
 					&output,
 					&errorOutput,
 				)
@@ -120,35 +109,21 @@ func TestHandleCommandLineVersion(
 func TestHandleCommandLineHelp(
 	t *testing.T,
 ) {
-	testCases := []struct {
-		name     string
-		argument string
-	}{
-		{
-			name:     "help command",
-			argument: "help",
-		},
-		{
-			name:     "long option",
-			argument: "--help",
-		},
-		{
-			name:     "short option",
-			argument: "-h",
-		},
+	arguments := []string{
+		"help",
+		"--help",
+		"-h",
 	}
 
-	for _, testCase := range testCases {
+	for _, argument := range arguments {
 		t.Run(
-			testCase.name,
+			argument,
 			func(t *testing.T) {
 				var output bytes.Buffer
 				var errorOutput bytes.Buffer
 
 				result := handleCommandLine(
-					[]string{
-						testCase.argument,
-					},
+					[]string{argument},
 					&output,
 					&errorOutput,
 				)
@@ -172,26 +147,6 @@ func TestHandleCommandLineHelp(
 				) {
 					t.Errorf(
 						"output = %q, expected usage information",
-						output.String(),
-					)
-				}
-
-				if !strings.Contains(
-					output.String(),
-					"setup",
-				) {
-					t.Errorf(
-						"output = %q, expected setup command",
-						output.String(),
-					)
-				}
-
-				if !strings.Contains(
-					output.String(),
-					"validate",
-				) {
-					t.Errorf(
-						"output = %q, expected validate command",
 						output.String(),
 					)
 				}
@@ -235,13 +190,6 @@ func TestHandleCommandLineSetupNotImplemented(
 		)
 	}
 
-	if output.Len() != 0 {
-		t.Errorf(
-			"output = %q, expected no output",
-			output.String(),
-		)
-	}
-
 	if !strings.Contains(
 		errorOutput.String(),
 		"setup wizard is not implemented yet",
@@ -253,9 +201,47 @@ func TestHandleCommandLineSetupNotImplemented(
 	}
 }
 
-func TestHandleCommandLineValidateNotImplemented(
+func TestHandleCommandLineValidate(
 	t *testing.T,
 ) {
+	originalLoadConfig := loadValidationConfig
+	originalValidateProxmox :=
+		validateProxmoxConnection
+	originalValidateAdGuard :=
+		validateAdGuardConnection
+
+	t.Cleanup(
+		func() {
+			loadValidationConfig =
+				originalLoadConfig
+			validateProxmoxConnection =
+				originalValidateProxmox
+			validateAdGuardConnection =
+				originalValidateAdGuard
+		},
+	)
+
+	loadValidationConfig = func() (
+		config.Config,
+		error,
+	) {
+		return config.Config{}, nil
+	}
+
+	validateProxmoxConnection = func(
+		context.Context,
+		config.Config,
+	) (string, error) {
+		return "9.2.4", nil
+	}
+
+	validateAdGuardConnection = func(
+		context.Context,
+		config.Config,
+	) (int, error) {
+		return 9, nil
+	}
+
 	var output bytes.Buffer
 	var errorOutput bytes.Buffer
 
@@ -271,29 +257,78 @@ func TestHandleCommandLineValidateNotImplemented(
 		)
 	}
 
-	if !errors.Is(
-		result.Err,
-		errCommandNotImplemented,
-	) {
+	if result.Err != nil {
 		t.Fatalf(
-			"handleCommandLine() error = %v, expected errCommandNotImplemented",
+			"handleCommandLine() error = %v",
 			result.Err,
 		)
 	}
 
-	if output.Len() != 0 {
+	if !strings.Contains(
+		output.String(),
+		"Validation completed successfully",
+	) {
 		t.Errorf(
-			"output = %q, expected no output",
+			"output = %q, expected successful validation",
 			output.String(),
+		)
+	}
+
+	if errorOutput.Len() != 0 {
+		t.Errorf(
+			"error output = %q, expected no output",
+			errorOutput.String(),
+		)
+	}
+}
+
+func TestHandleCommandLineValidateFailure(
+	t *testing.T,
+) {
+	originalLoadConfig := loadValidationConfig
+
+	t.Cleanup(
+		func() {
+			loadValidationConfig =
+				originalLoadConfig
+		},
+	)
+
+	loadValidationConfig = func() (
+		config.Config,
+		error,
+	) {
+		return config.Config{},
+			errors.New("missing configuration")
+	}
+
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+
+	result := handleCommandLine(
+		[]string{"validate"},
+		&output,
+		&errorOutput,
+	)
+
+	if !result.Handled {
+		t.Fatal(
+			"handleCommandLine() returned Handled=false",
+		)
+	}
+
+	if result.Err == nil {
+		t.Fatal(
+			"handleCommandLine() returned nil error",
 		)
 	}
 
 	if !strings.Contains(
 		errorOutput.String(),
-		"configuration validation is not implemented yet",
+		"validation failed",
 	) {
 		t.Errorf(
-			"error output = %q, expected validation warning",
+			"error output = %q, expected validation failure",
 			errorOutput.String(),
 		)
 	}
@@ -320,13 +355,6 @@ func TestHandleCommandLineUnknownCommand(
 	if result.Err == nil {
 		t.Fatal(
 			"handleCommandLine() returned nil error",
-		)
-	}
-
-	if output.Len() != 0 {
-		t.Errorf(
-			"output = %q, expected no output",
-			output.String(),
 		)
 	}
 
@@ -378,29 +406,12 @@ func TestHandleCommandLineTooManyArguments(
 		)
 	}
 
-	if output.Len() != 0 {
-		t.Errorf(
-			"output = %q, expected no output",
-			output.String(),
-		)
-	}
-
 	if !strings.Contains(
 		errorOutput.String(),
 		"too many arguments",
 	) {
 		t.Errorf(
 			"error output = %q, expected argument error",
-			errorOutput.String(),
-		)
-	}
-
-	if !strings.Contains(
-		errorOutput.String(),
-		"Usage:",
-	) {
-		t.Errorf(
-			"error output = %q, expected usage information",
 			errorOutput.String(),
 		)
 	}

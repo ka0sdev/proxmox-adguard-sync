@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -25,16 +26,18 @@ func handleCommandLine(
 	}
 
 	if len(arguments) > 1 {
+		err := errors.New("too many arguments")
+
 		printCommandError(
 			errorOutput,
-			"too many arguments",
+			err.Error(),
 		)
 
 		printUsage(errorOutput)
 
 		return commandResult{
 			Handled: true,
-			Err:     errors.New("too many arguments"),
+			Err:     err,
 		}
 	}
 
@@ -68,36 +71,41 @@ func handleCommandLine(
 		}
 
 	case "validate":
-		printCommandError(
-			errorOutput,
-			"configuration validation is not implemented yet",
+		err := runValidation(
+			context.Background(),
+			output,
 		)
+		if err != nil {
+			printCommandError(
+				errorOutput,
+				fmt.Sprintf(
+					"validation failed: %v",
+					err,
+				),
+			)
+		}
 
 		return commandResult{
 			Handled: true,
-			Err: fmt.Errorf(
-				"validate: %w",
-				errCommandNotImplemented,
-			),
+			Err:     err,
 		}
 
 	default:
+		err := fmt.Errorf(
+			"unknown command %q",
+			arguments[0],
+		)
+
 		printCommandError(
 			errorOutput,
-			fmt.Sprintf(
-				"unknown command %q",
-				arguments[0],
-			),
+			err.Error(),
 		)
 
 		printUsage(errorOutput)
 
 		return commandResult{
 			Handled: true,
-			Err: fmt.Errorf(
-				"unknown command %q",
-				arguments[0],
-			),
+			Err:     err,
 		}
 	}
 }
@@ -123,7 +131,7 @@ Options:
 
 Running %s without a command starts the synchronization service.
 
-The setup and validate commands are planned but are not implemented yet.
+The setup command is planned but is not implemented yet.
 `,
 		applicationName,
 		applicationName,
