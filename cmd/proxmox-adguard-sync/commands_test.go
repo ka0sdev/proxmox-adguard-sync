@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -162,9 +164,30 @@ func TestHandleCommandLineHelp(
 	}
 }
 
-func TestHandleCommandLineSetupNotImplemented(
+func TestHandleCommandLineSetup(
 	t *testing.T,
 ) {
+	originalRunSetupCommand := runSetupCommand
+
+	t.Cleanup(
+		func() {
+			runSetupCommand =
+				originalRunSetupCommand
+		},
+	)
+
+	runSetupCommand = func(
+		output io.Writer,
+		errorOutput io.Writer,
+	) error {
+		_, _ = fmt.Fprintln(
+			output,
+			"setup completed",
+		)
+
+		return nil
+	}
+
 	var output bytes.Buffer
 	var errorOutput bytes.Buffer
 
@@ -180,22 +203,79 @@ func TestHandleCommandLineSetupNotImplemented(
 		)
 	}
 
-	if !errors.Is(
-		result.Err,
-		errCommandNotImplemented,
-	) {
+	if result.Err != nil {
 		t.Fatalf(
-			"handleCommandLine() error = %v, expected errCommandNotImplemented",
+			"handleCommandLine() error = %v",
 			result.Err,
 		)
 	}
 
 	if !strings.Contains(
-		errorOutput.String(),
-		"setup wizard is not implemented yet",
+		output.String(),
+		"setup completed",
 	) {
 		t.Errorf(
-			"error output = %q, expected setup warning",
+			"output = %q, expected setup output",
+			output.String(),
+		)
+	}
+
+	if errorOutput.Len() != 0 {
+		t.Errorf(
+			"error output = %q, expected no output",
+			errorOutput.String(),
+		)
+	}
+}
+
+func TestHandleCommandLineSetupFailure(
+	t *testing.T,
+) {
+	originalRunSetupCommand := runSetupCommand
+
+	t.Cleanup(
+		func() {
+			runSetupCommand =
+				originalRunSetupCommand
+		},
+	)
+
+	runSetupCommand = func(
+		io.Writer,
+		io.Writer,
+	) error {
+		return errors.New(
+			"unable to write configuration",
+		)
+	}
+
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+
+	result := handleCommandLine(
+		[]string{"setup"},
+		&output,
+		&errorOutput,
+	)
+
+	if !result.Handled {
+		t.Fatal(
+			"handleCommandLine() returned Handled=false",
+		)
+	}
+
+	if result.Err == nil {
+		t.Fatal(
+			"handleCommandLine() returned nil error",
+		)
+	}
+
+	if !strings.Contains(
+		errorOutput.String(),
+		"setup failed",
+	) {
+		t.Errorf(
+			"error output = %q, expected setup failure",
 			errorOutput.String(),
 		)
 	}

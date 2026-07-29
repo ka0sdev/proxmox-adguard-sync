@@ -5,11 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 )
 
 var errCommandNotImplemented = errors.New(
 	"command is not implemented yet",
 )
+
+var runSetupCommand = func(
+	output io.Writer,
+	errorOutput io.Writer,
+) error {
+	return runSetup(
+		os.Stdin,
+		output,
+		errorOutput,
+	)
+}
 
 type commandResult struct {
 	Handled bool
@@ -57,17 +69,23 @@ func handleCommandLine(
 		}
 
 	case "setup":
-		printCommandError(
+		err := runSetupCommand(
+			output,
 			errorOutput,
-			"the setup wizard is not implemented yet",
 		)
+		if err != nil {
+			printCommandError(
+				errorOutput,
+				fmt.Sprintf(
+					"setup failed: %v",
+					err,
+				),
+			)
+		}
 
 		return commandResult{
 			Handled: true,
-			Err: fmt.Errorf(
-				"setup: %w",
-				errCommandNotImplemented,
-			),
+			Err:     err,
 		}
 
 	case "validate":
@@ -130,8 +148,6 @@ Options:
       --version    Show version and build information
 
 Running %s without a command starts the synchronization service.
-
-The setup command is planned but is not implemented yet.
 `,
 		applicationName,
 		applicationName,
