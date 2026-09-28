@@ -47,8 +47,8 @@ The primary focus is validating synchronization safety, improving installation a
 
 - [x] Add an interactive configuration wizard
 - [x] Add a non-interactive configuration validation command
-- [ ] Test Proxmox connectivity during setup
-- [ ] Test AdGuard Home connectivity during setup
+- [x] Test Proxmox connectivity during setup
+- [x] Test AdGuard Home connectivity during setup
 - [x] Generate configuration files with restrictive permissions
 - [ ] Add a systemd service example
 - [ ] Add a guided native installation process
