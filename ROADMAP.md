@@ -62,9 +62,9 @@ The primary focus is validating synchronization safety, improving installation a
 
 ### Reliability and safety
 
-- [ ] Add atomic state-file writes
-- [ ] Add state-file corruption detection
-- [ ] Add automatic state backups
+- [x] Add atomic state-file writes
+- [x] Add state-file corruption detection
+- [x] Add automatic state backups
 - [ ] Add recovery documentation
 - [ ] Add additional protection against accidental mass deletion
 - [ ] Add configurable deletion thresholds
