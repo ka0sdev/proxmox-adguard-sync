@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
 	"golang.org/x/term"
 )
 
@@ -18,6 +21,7 @@ const (
 	defaultDNSSuffix         = "internal"
 	defaultStateFile         = "./data/state.json"
 	defaultSetupSyncInterval = 60
+	setupConnectionTimeout   = 10 * time.Second
 )
 
 var errSetupCancelled = errors.New(
@@ -67,6 +71,10 @@ func runSetup(
 
 	answers, err := wizard.collectAnswers()
 	if err != nil {
+		return err
+	}
+
+	if err := wizard.testConnections(answers); err != nil {
 		return err
 	}
 
@@ -123,7 +131,7 @@ func runSetup(
 
 	_, _ = fmt.Fprintln(
 		output,
-		"\nThen validate it:",
+		"\nYou can validate it again at any time:",
 	)
 
 	_, _ = fmt.Fprintln(
@@ -315,6 +323,167 @@ func (w *setupWizard) collectAnswers() (
 		),
 		DryRun: true,
 	}, nil
+}
+
+func (w *setupWizard) testConnections(
+	answers setupAnswers,
+) error {
+	_, _ = fmt.Fprintln(
+		w.output,
+		"\nTesting service connectivity...",
+	)
+
+	cfg := setupAnswersToConfig(answers)
+
+	proxmoxContext, cancelProxmox :=
+		context.WithTimeout(
+			context.Background(),
+			setupConnectionTimeout,
+		)
+	defer cancelProxmox()
+
+	proxmoxVersion, err :=
+		validateProxmoxConnection(
+			proxmoxContext,
+			cfg,
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"test Proxmox connection: %w",
+			err,
+		)
+	}
+
+	_, _ = fmt.Fprintf(
+		w.output,
+		"✓ Proxmox connection succeeded: %s\n",
+		proxmoxVersion,
+	)
+
+	adGuardContext, cancelAdGuard :=
+		context.WithTimeout(
+			context.Background(),
+			setupConnectionTimeout,
+		)
+	defer cancelAdGuard()
+
+	rewriteCount, err :=
+		validateAdGuardConnection(
+			adGuardContext,
+			cfg,
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"test AdGuard Home connection: %w",
+			err,
+		)
+	}
+
+	_, _ = fmt.Fprintf(
+		w.output,
+		"✓ AdGuard Home connection succeeded: %d rewrites found\n",
+		rewriteCount,
+	)
+
+	_, _ = fmt.Fprintln(
+		w.output,
+		"✓ Connectivity tests completed successfully",
+	)
+
+	return nil
+}
+
+func setupAnswersToConfig(
+	answers setupAnswers,
+) config.Config {
+	return config.Config{
+		Proxmox: config.ProxmoxConfig{
+			BaseURL:        answers.ProxmoxBaseURL,
+			APITokenID:     answers.ProxmoxTokenID,
+			APITokenSecret: answers.ProxmoxTokenSecret,
+			VerifyTLS:      answers.ProxmoxVerifyTLS,
+		},
+		AdGuard: config.AdGuardConfig{
+			BaseURL:  answers.AdGuardBaseURL,
+			Username: answers.AdGuardUsername,
+			Password: answers.AdGuardPassword,
+		},
+		DNS: config.DNSConfig{
+			Suffix: answers.DNSSuffix,
+		},
+		State: config.StateConfig{
+			File: answers.StateFile,
+		},
+		Runtime: config.RuntimeConfig{
+			DryRun: answers.DryRun,
+		},
+		Logging: config.LoggingConfig{
+			Level:  "info",
+			Format: "text",
+		},
+		Filters: config.FilterConfig{
+			IncludeTypes: []string{
+				"qemu",
+				"lxc",
+			},
+			RequireRunning: answers.RequireRunning,
+			ExcludeTags: environmentCSVFromString(
+				answers.ExcludeTags,
+			),
+		},
+		Discovery: config.DiscoveryConfig{
+			QEMUOrder: []string{
+				"guest-agent",
+				"description",
+				"cloudinit",
+			},
+			LXCOrder: []string{
+				"config",
+				"description",
+			},
+			DescriptionIPKeys: []string{
+				"dns_ip",
+				"ip",
+			},
+			DescriptionNameKeys: []string{
+				"dns_name",
+				"name",
+			},
+		},
+		SyncInterval: time.Duration(
+			answers.SyncIntervalSeconds,
+		) * time.Second,
+	}
+}
+
+func environmentCSVFromString(
+	value string,
+) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	values := make(
+		[]string,
+		0,
+		len(parts),
+	)
+
+	for _, part := range parts {
+		part = strings.ToLower(
+			strings.TrimSpace(part),
+		)
+
+		if part != "" {
+			values = append(
+				values,
+				part,
+			)
+		}
+	}
+
+	return values
 }
 
 func (w *setupWizard) confirmOverwrite(

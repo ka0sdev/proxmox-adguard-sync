@@ -2,17 +2,57 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/ka0sdev/proxmox-adguard-sync/internal/config"
 )
+
+func mockSuccessfulSetupConnections(
+	t *testing.T,
+) {
+	t.Helper()
+
+	originalValidateProxmox :=
+		validateProxmoxConnection
+	originalValidateAdGuard :=
+		validateAdGuardConnection
+
+	t.Cleanup(
+		func() {
+			validateProxmoxConnection =
+				originalValidateProxmox
+			validateAdGuardConnection =
+				originalValidateAdGuard
+		},
+	)
+
+	validateProxmoxConnection = func(
+		context.Context,
+		config.Config,
+	) (string, error) {
+		return "9.2.4", nil
+	}
+
+	validateAdGuardConnection = func(
+		context.Context,
+		config.Config,
+	) (int, error) {
+		return 9, nil
+	}
+}
 
 func TestRunSetupWritesEnvironmentFile(
 	t *testing.T,
 ) {
+	mockSuccessfulSetupConnections(t)
+
 	temporaryDirectory := t.TempDir()
 	configurationPath := filepath.Join(
 		temporaryDirectory,
@@ -96,6 +136,27 @@ func TestRunSetupWritesEnvironmentFile(
 		}
 	}
 
+	expectedOutput := []string{
+		"Testing service connectivity",
+		"Proxmox connection succeeded: 9.2.4",
+		"AdGuard Home connection succeeded: 9 rewrites found",
+		"Connectivity tests completed successfully",
+		"Configuration written",
+	}
+
+	for _, expected := range expectedOutput {
+		if !strings.Contains(
+			output.String(),
+			expected,
+		) {
+			t.Errorf(
+				"output = %q, expected %q",
+				output.String(),
+				expected,
+			)
+		}
+	}
+
 	if strings.Contains(
 		output.String(),
 		"proxmox-secret",
@@ -145,6 +206,8 @@ func TestRunSetupWritesEnvironmentFile(
 func TestRunSetupUsesSafeDefaults(
 	t *testing.T,
 ) {
+	mockSuccessfulSetupConnections(t)
+
 	temporaryDirectory := t.TempDir()
 	configurationPath := filepath.Join(
 		temporaryDirectory,
@@ -289,6 +352,8 @@ func TestRunSetupDoesNotOverwriteWithoutConfirmation(
 func TestRunSetupCanOverwriteExistingFile(
 	t *testing.T,
 ) {
+	mockSuccessfulSetupConnections(t)
+
 	temporaryDirectory := t.TempDir()
 	configurationPath := filepath.Join(
 		temporaryDirectory,
@@ -363,6 +428,223 @@ func TestRunSetupCanOverwriteExistingFile(
 	}
 }
 
+func TestRunSetupProxmoxConnectionFailure(
+	t *testing.T,
+) {
+	originalValidateProxmox :=
+		validateProxmoxConnection
+	originalValidateAdGuard :=
+		validateAdGuardConnection
+
+	t.Cleanup(
+		func() {
+			validateProxmoxConnection =
+				originalValidateProxmox
+			validateAdGuardConnection =
+				originalValidateAdGuard
+		},
+	)
+
+	validateProxmoxConnection = func(
+		context.Context,
+		config.Config,
+	) (string, error) {
+		return "",
+			errors.New("authentication failed")
+	}
+
+	adGuardCalled := false
+
+	validateAdGuardConnection = func(
+		context.Context,
+		config.Config,
+	) (int, error) {
+		adGuardCalled = true
+		return 0, nil
+	}
+
+	temporaryDirectory := t.TempDir()
+	configurationPath := filepath.Join(
+		temporaryDirectory,
+		".env.local",
+	)
+
+	input := validSetupInput(
+		configurationPath,
+	)
+
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+
+	err := runSetup(
+		strings.NewReader(input),
+		&output,
+		&errorOutput,
+	)
+	if err == nil {
+		t.Fatal(
+			"runSetup() returned nil error",
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"test Proxmox connection",
+	) {
+		t.Errorf(
+			"error = %q, expected Proxmox connection error",
+			err,
+		)
+	}
+
+	if adGuardCalled {
+		t.Error(
+			"AdGuard validation ran after Proxmox validation failed",
+		)
+	}
+
+	if _, statErr := os.Stat(configurationPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf(
+			"configuration file exists after failed Proxmox test",
+		)
+	}
+}
+
+func TestRunSetupAdGuardConnectionFailure(
+	t *testing.T,
+) {
+	originalValidateProxmox :=
+		validateProxmoxConnection
+	originalValidateAdGuard :=
+		validateAdGuardConnection
+
+	t.Cleanup(
+		func() {
+			validateProxmoxConnection =
+				originalValidateProxmox
+			validateAdGuardConnection =
+				originalValidateAdGuard
+		},
+	)
+
+	validateProxmoxConnection = func(
+		context.Context,
+		config.Config,
+	) (string, error) {
+		return "9.2.4", nil
+	}
+
+	validateAdGuardConnection = func(
+		context.Context,
+		config.Config,
+	) (int, error) {
+		return 0,
+			errors.New("authentication failed")
+	}
+
+	temporaryDirectory := t.TempDir()
+	configurationPath := filepath.Join(
+		temporaryDirectory,
+		".env.local",
+	)
+
+	input := validSetupInput(
+		configurationPath,
+	)
+
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+
+	err := runSetup(
+		strings.NewReader(input),
+		&output,
+		&errorOutput,
+	)
+	if err == nil {
+		t.Fatal(
+			"runSetup() returned nil error",
+		)
+	}
+
+	if !strings.Contains(
+		err.Error(),
+		"test AdGuard Home connection",
+	) {
+		t.Errorf(
+			"error = %q, expected AdGuard connection error",
+			err,
+		)
+	}
+
+	if !strings.Contains(
+		output.String(),
+		"Proxmox connection succeeded",
+	) {
+		t.Errorf(
+			"output = %q, expected successful Proxmox test",
+			output.String(),
+		)
+	}
+
+	if _, statErr := os.Stat(configurationPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf(
+			"configuration file exists after failed AdGuard test",
+		)
+	}
+}
+
+func TestSetupAnswersToConfig(
+	t *testing.T,
+) {
+	answers := setupAnswers{
+		ProxmoxBaseURL:      "https://proxmox.example/api2/json",
+		ProxmoxTokenID:      "sync@pve!token",
+		ProxmoxTokenSecret:  "secret",
+		ProxmoxVerifyTLS:    true,
+		AdGuardBaseURL:      "http://adguard.example",
+		AdGuardUsername:     "admin",
+		AdGuardPassword:     "password",
+		DNSSuffix:           "internal",
+		RequireRunning:      true,
+		ExcludeTags:         "testing,no-monitor",
+		SyncIntervalSeconds: 120,
+		StateFile:           "./data/state.json",
+		DryRun:              true,
+	}
+
+	cfg := setupAnswersToConfig(answers)
+
+	if cfg.Proxmox.BaseURL != answers.ProxmoxBaseURL {
+		t.Errorf(
+			"Proxmox BaseURL = %q, expected %q",
+			cfg.Proxmox.BaseURL,
+			answers.ProxmoxBaseURL,
+		)
+	}
+
+	if cfg.AdGuard.BaseURL != answers.AdGuardBaseURL {
+		t.Errorf(
+			"AdGuard BaseURL = %q, expected %q",
+			cfg.AdGuard.BaseURL,
+			answers.AdGuardBaseURL,
+		)
+	}
+
+	if cfg.SyncInterval != 120*time.Second {
+		t.Errorf(
+			"SyncInterval = %s, expected 2m0s",
+			cfg.SyncInterval,
+		)
+	}
+
+	if len(cfg.Filters.ExcludeTags) != 2 {
+		t.Errorf(
+			"ExcludeTags = %#v, expected two values",
+			cfg.Filters.ExcludeTags,
+		)
+	}
+}
+
 func TestShellQuote(
 	t *testing.T,
 ) {
@@ -397,4 +679,29 @@ func TestNormalizeCSVInput(
 			expected,
 		)
 	}
+}
+
+func validSetupInput(
+	configurationPath string,
+) string {
+	return strings.Join(
+		[]string{
+			configurationPath,
+			"https://proxmox.example:8006/api2/json",
+			"sync@pve!token",
+			"token-secret",
+			"",
+			"http://adguard.example",
+			"admin",
+			"password",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"y",
+			"",
+		},
+		"\n",
+	)
 }
