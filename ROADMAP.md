@@ -39,17 +39,17 @@ The primary focus is validating synchronization safety, improving installation a
 - [x] Validate published release assets
 - [x] Validate binary architectures
 - [x] Validate release version metadata
-- [ ] Add automated validation summary to GitHub Releases
+- [x] Add automated validation summary to GitHub Releases
 - [ ] Publish installation and upgrade documentation
 - [ ] Document rollback procedures
 
 ### Configuration and installation
 
-- [ ] Add an interactive configuration wizard
-- [ ] Add a non-interactive configuration validation command
+- [x] Add an interactive configuration wizard
+- [x] Add a non-interactive configuration validation command
 - [ ] Test Proxmox connectivity during setup
 - [ ] Test AdGuard Home connectivity during setup
-- [ ] Generate configuration files with restrictive permissions
+- [x] Generate configuration files with restrictive permissions
 - [ ] Add a systemd service example
 - [ ] Add a guided native installation process
 - [ ] Add a minimal production container image
